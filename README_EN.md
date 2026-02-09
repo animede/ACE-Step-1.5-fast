@@ -218,4 +218,4 @@ ace_step_client_pro/
 
 ## 📄 License
 
-MIT License
+PolyForm Noncommercial License 1.0.0
