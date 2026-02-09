@@ -1588,7 +1588,7 @@ class ACEStepClient {
 
 ## ✅ Standalone Webアプリ開発完了
 
-この仕様書に基づいて **ace_step_standalone** Webアプリを開発しました。
+この仕様書に基づいて **ace_step_client_pro** Webアプリを開発しました。
 
 ### 実装内容
 
@@ -1625,8 +1625,8 @@ class ACEStepClient {
 
 ### パス
 
-アプリ: `/home/animede/gm_song/ace_step_standalone/`  
-README: `ace_step_standalone/README.md`
+アプリ: `ace_step_client_pro/`  
+README: `../README.md`
 
 ---
 
