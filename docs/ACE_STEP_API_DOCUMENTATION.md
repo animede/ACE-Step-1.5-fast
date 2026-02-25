@@ -1389,6 +1389,91 @@ app.add_middleware(
 - 34種のキースケール対応
 - STEP/CFG/SEEDパラメータ
 
+### Webアプリ独自 API エンドポイント
+
+ace_step_client_pro (FastAPI port:8888) が提供する独自エンドポイント一覧:
+
+| エンドポイント | メソッド | 説明 |
+|---------------|---------|------|
+| `/api/generate` | POST | 音楽生成タスク作成（JSON） |
+| `/api/generate_and_wait` | POST | 音楽生成して完了まで待機（JSON） |
+| `/api/generate_cover` | POST | カバーモード生成（multipart/form-data、音声ファイルアップロード） |
+| `/api/generate_repaint` | POST | リペイントモード生成（multipart/form-data、音声ファイル＋開始/終了秒） |
+| `/api/format_input` | POST | AI強化 — LLMでタグ/歌詞/BPM/調等を自動補完・強化 |
+| `/api/random_sample` | GET | ACE-Step APIからランダムサンプルパラメータ取得 |
+| `/api/status/{task_id}` | GET | タスクステータス確認 |
+| `/api/audio` | GET | 音声ファイルプロキシ（CORS対応） |
+| `/api/models` | GET | ACE-Stepモデル情報取得 |
+| `/api/stats` | GET | ACE-Step統計情報取得 |
+| `/api/lyrics` | POST | AI作詞（LLM経由） |
+| `/api/tags` | POST | タグ生成（LLM経由） |
+| `/api/full_generate` | POST | 歌詞+タグ一括生成（LLM経由） |
+| `/api/languages` | GET | サポート言語一覧 |
+| `/api/key_scales` | GET | サポートキースケール一覧 |
+| `/api/health` | GET | ヘルスチェック |
+
+#### POST /api/format_input
+
+LLMでプロンプト・歌詞を強化。ACE-Step の `/format_input` API を呼び出す。
+
+**リクエスト:**
+```json
+{
+  "prompt": "pop, female voice",
+  "lyrics": "[verse]\n星の海に...",
+  "temperature": 0.85
+}
+```
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "caption": "J-Pop, female vocal, emotional, piano, strings, hopeful",
+  "lyrics": "[intro]\n[inst]\n\n[verse]\n星の海に...",
+  "bpm": 120,
+  "key_scale": "A minor",
+  "time_signature": "4",
+  "duration": 180,
+  "vocal_language": "ja"
+}
+```
+
+#### POST /api/generate_cover (multipart/form-data)
+
+ソース音声をアップロードし、声質・スタイルを参照して新しい音楽を生成。
+
+**フォームフィールド:**
+- `src_audio` (file, 必須): ソース音声ファイル
+- `audio_cover_strength` (float): カバー強度 0.0〜1.0（デフォルト 0.8）
+- `prompt`, `lyrics`, `thinking`, `vocal_language`, `audio_duration` 等: 通常の生成パラメータ
+- `lm_temperature`, `lm_cfg_scale`, `lm_top_p`, `use_cot_caption`, `use_cot_language`: LMパラメータ（オプション）
+
+#### POST /api/generate_repaint (multipart/form-data)
+
+音声の指定区間のみを再生成。
+
+**フォームフィールド:**
+- `src_audio` (file, 必須): リペイント対象の音声ファイル
+- `repainting_start` (float): リペイント開始位置（秒）
+- `repainting_end` (float): リペイント終了位置（秒）
+- `prompt`, `lyrics`, `thinking` 等: 通常の生成パラメータ
+- `lm_temperature`, `lm_cfg_scale`, `lm_top_p`, `use_cot_caption`, `use_cot_language`: LMパラメータ（オプション）
+
+#### 全生成エンドポイント共通: LMパラメータ
+
+通常生成(`/api/generate`)ではJSONボディに、カバー/リペイント(`/api/generate_cover`, `/api/generate_repaint`)ではFormフィールドで指定:
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|-----|----------|------|
+| `lm_temperature` | float | 0.85 | LM温度（高いほど多様性） |
+| `lm_cfg_scale` | float | 2.5 | LM CFGスケール（高いほどプロンプトに忠実） |
+| `lm_top_p` | float | 0.9 | 核サンプリング（上位P%をサンプリング） |
+| `use_cot_caption` | bool | true | Chain-of-Thoughtでキャプション強化 |
+| `use_cot_language` | bool | true | Chain-of-Thoughtで言語自動判定 |
+
+いずれもオプション。省略時はACE-Stepサーバーのデフォルト値が使用される。
+
 ### 詳細
 
 パス: `ace_step_client_pro/`  

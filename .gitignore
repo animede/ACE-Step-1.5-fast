@@ -34,3 +34,9 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# Local LLM models (auto-downloaded)
+models/*.gguf
+
+# Research notes (personal)
+ACE_STEP15_RESEARCH_NOTE_JP.md

@@ -9,7 +9,10 @@
 <body>
     <div class="container">
         <header>
-            <h1>🎵 ACE-Step 1.5 Music Generator</h1>
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;">
+                <h1>🎵 ACE-Step 1.5 Music Generator</h1>
+                <a href="/simple" style="color:var(--text-muted);text-decoration:none;font-size:0.9rem;padding:6px 14px;border:1px solid var(--border-color);border-radius:8px;transition:all 0.2s;white-space:nowrap;" onmouseover="this.style.borderColor='var(--primary-color)';this.style.color='var(--text-color)'" onmouseout="this.style.borderColor='var(--border-color)';this.style.color='var(--text-muted)'">🎹 シンプル</a>
+            </div>
             <p>AIで音楽を生成 - テーマを入力するだけで、歌詞・タグ・音楽を自動生成</p>
         </header>
 
@@ -19,6 +22,7 @@
                 <div class="card-header">
                     <span class="icon">🎧</span>
                     <h2>再生</h2>
+                    <span class="track-indicator" id="track-indicator"></span>
                 </div>
 
                 <!-- オーディオプレイヤー -->
@@ -35,6 +39,9 @@
                     </div>
                 </div>
             </div>
+
+            <!-- バッチ結果一覧 + メタデータ -->
+            <div class="results-grid" id="results-grid"></div>
         </div>
 
         <div class="main-grid">
@@ -84,6 +91,80 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- カバーモード -->
+                <div class="card cover-section" id="cover-section">
+                    <div class="card-header">
+                        <span class="icon">🎤</span>
+                        <h2>カバーモード（声質参照）</h2>
+                        <button type="button" class="header-accordion-toggle" onclick="toggleAccordion('cover-accordion')" data-accordion-target="cover-accordion" aria-expanded="false">
+                            ▼ 開く <span class="accordion-icon">▼</span>
+                        </button>
+                    </div>
+                    <div class="accordion" id="cover-accordion">
+                        <div class="accordion-content">
+                            <p class="cover-description">参照音声の声質・スタイルで新しい音楽を生成します。音声ファイル（20～45秒推奨）をアップロードしてください。</p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="cover_audio">ソース音声 <span class="required">*</span></label>
+                                    <input type="file" id="cover_audio" accept="audio/*" class="file-input">
+                                    <div class="file-info" id="cover-file-info"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cover_strength">カバー強度: <span id="cover-strength-value">0.80</span></label>
+                                    <input type="range" id="cover_strength" min="0" max="1" step="0.05" value="0.80" oninput="document.getElementById('cover-strength-value').textContent = parseFloat(this.value).toFixed(2)">
+                                    <div class="slider-hints">
+                                        <span>← スタイル対照</span>
+                                        <span>声質対照 →</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="action-buttons">
+                                <button class="btn btn-success" id="cover-btn" onclick="generateCover()">
+                                    🎤 カバー生成
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- リペイントモード -->
+                <div class="card repaint-section" id="repaint-section">
+                    <div class="card-header">
+                        <span class="icon">🎨</span>
+                        <h2>リペイントモード（部分再生成）</h2>
+                        <button type="button" class="header-accordion-toggle" onclick="toggleAccordion('repaint-accordion')" data-accordion-target="repaint-accordion" aria-expanded="false">
+                            ▼ 開く <span class="accordion-icon">▼</span>
+                        </button>
+                    </div>
+                    <div class="accordion" id="repaint-accordion">
+                        <div class="accordion-content">
+                            <p class="cover-description">音声の一部区間のみを再生成します。元の音声ファイルをアップロードし、リペイントしたい区間（秒）を指定してください。</p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="repaint_audio">リペイント対象の音声 <span class="required">*</span></label>
+                                    <input type="file" id="repaint_audio" accept="audio/*" class="file-input">
+                                    <div class="file-info" id="repaint-file-info"></div>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="repaint_start">開始位置（秒）</label>
+                                    <input type="number" id="repaint_start" min="0" max="300" value="0" step="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="repaint_end">終了位置（秒）</label>
+                                    <input type="number" id="repaint_end" min="0" max="300" value="30" step="0.1">
+                                </div>
+                            </div>
+                            <div class="action-buttons">
+                                <button class="btn btn-success" id="repaint-btn" onclick="generateRepaint()">
+                                    🎨 リペイント生成
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- 右側: 設定と出力 -->
@@ -98,14 +179,22 @@
                         <textarea id="prompt" rows="3" placeholder="例: Neo-Soul, warm, organic, female voice, emotional, piano, strings"></textarea>
                     </div>
                     <div class="genre-suggestions">
-                        <span class="genre-suggestion" onclick="addGenre('pop')">Pop</span>
-                        <span class="genre-suggestion" onclick="addGenre('rock')">Rock</span>
-                        <span class="genre-suggestion" onclick="addGenre('jazz')">Jazz</span>
-                        <span class="genre-suggestion" onclick="addGenre('electronic')">Electronic</span>
-                        <span class="genre-suggestion" onclick="addGenre('R&B')">R&B</span>
-                        <span class="genre-suggestion" onclick="addGenre('hip-hop')">Hip-Hop</span>
-                        <span class="genre-suggestion" onclick="addGenre('classical')">Classical</span>
-                        <span class="genre-suggestion" onclick="addGenre('folk')">Folk</span>
+                        <span class="genre-suggestion" onclick="genreCaption('pop')">Pop</span>
+                        <span class="genre-suggestion" onclick="genreCaption('rock')">Rock</span>
+                        <span class="genre-suggestion" onclick="genreCaption('jazz')">Jazz</span>
+                        <span class="genre-suggestion" onclick="genreCaption('electronic')">Electronic</span>
+                        <span class="genre-suggestion" onclick="genreCaption('R&B')">R&B</span>
+                        <span class="genre-suggestion" onclick="genreCaption('hip-hop')">Hip-Hop</span>
+                        <span class="genre-suggestion" onclick="genreCaption('classical')">Classical</span>
+                        <span class="genre-suggestion" onclick="genreCaption('folk')">Folk</span>
+                    </div>
+                    <div class="action-buttons" style="margin-top: 10px;">
+                        <button class="btn btn-secondary btn-sm" id="caption-btn" onclick="generateCaption()">
+                            📖 キャプション生成
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="format-btn" onclick="formatInput()">
+                            ✨ AI強化（format_input）
+                        </button>
                     </div>
                 </div>
 
@@ -238,7 +327,7 @@
                         </div>
                         <div class="form-group">
                             <label for="inference_steps">STEP</label>
-                            <input type="number" id="inference_steps" min="1" max="200" value="60" step="1" title="推論ステップ数（多いほど高品質・遅い）">
+                            <input type="number" id="inference_steps" min="1" max="200" value="150" step="1" title="推論ステップ数（多いほど高品質・遅い）">
                         </div>
                     </div>
 
@@ -275,6 +364,39 @@
                                         <option value="wav">WAV</option>
                                         <option value="flac">FLAC</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <!-- LM パラメータ -->
+                            <div class="lm-params-section">
+                                <h4 class="lm-params-title">🧠 LM パラメータ</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="lm_temperature">LM Temperature</label>
+                                        <input type="number" id="lm_temperature" min="0" max="2" value="" step="0.05" placeholder="0.85（デフォルト）" title="LM温度：高いほど多様性が増す">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="lm_cfg_scale">LM CFG Scale</label>
+                                        <input type="number" id="lm_cfg_scale" min="0" max="20" value="" step="0.1" placeholder="2.5（デフォルト）" title="LM CFGスケール：高いほどプロンプトに忠実">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="lm_top_p">LM Top-P</label>
+                                        <input type="number" id="lm_top_p" min="0" max="1" value="" step="0.05" placeholder="0.9（デフォルト）" title="核サンプリング：上位P%をサンプリング">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="use_cot_caption" checked>
+                                            CoT Caption（LMのChain-of-Thoughtでキャプション強化）
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="use_cot_language" checked>
+                                            CoT Language（LMで言語自動判定）
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>

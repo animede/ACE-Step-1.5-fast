@@ -48,6 +48,21 @@ class TagsGenerateResponse(BaseModel):
     error: Optional[str] = None
 
 
+class CaptionGenerateRequest(BaseModel):
+    """キャプション生成リクエスト"""
+    lyrics: str = Field(default="", description="歌詞")
+    theme: str = Field(default="", description="テーマ")
+    tags: str = Field(default="", description="既存のタグ")
+    language: str = Field(default="Japanese", description="言語")
+
+
+class CaptionGenerateResponse(BaseModel):
+    """キャプション生成レスポンス"""
+    success: bool
+    caption: str = ""
+    error: Optional[str] = None
+
+
 class FullGenerateRequest(BaseModel):
     """歌詞+タグ一括生成リクエスト"""
     theme: str = Field(..., description="曲のテーマ/シナリオ")
@@ -69,9 +84,37 @@ class FullGenerateResponse(BaseModel):
     error: Optional[str] = None
 
 
+class ThemeGenerateRequest(BaseModel):
+    """テーマ生成リクエスト"""
+    genre: str = Field(default="", description="ジャンル")
+    language: str = Field(default="Japanese", description="言語")
+
+
+class ThemeGenerateResponse(BaseModel):
+    """テーマ生成レスポンス"""
+    success: bool
+    theme: str = ""
+    error: Optional[str] = None
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
+
+
+@router.post("/theme", response_model=ThemeGenerateResponse)
+async def generate_theme(request: ThemeGenerateRequest):
+    """
+    LLMでテーマ/シナリオを自動生成
+    """
+    try:
+        theme = await llm_service.generate_theme(
+            genre=request.genre,
+            language=request.language
+        )
+        return ThemeGenerateResponse(success=True, theme=theme)
+    except Exception as e:
+        return ThemeGenerateResponse(success=False, error=str(e))
 
 @router.post("/lyrics", response_model=LyricsGenerateResponse)
 async def generate_lyrics(request: LyricsGenerateRequest):
@@ -131,6 +174,33 @@ async def generate_tags(request: TagsGenerateRequest):
         )
 
 
+@router.post("/caption", response_model=CaptionGenerateResponse)
+async def generate_caption(request: CaptionGenerateRequest):
+    """
+    ナラティブキャプション生成
+    
+    歌詞/テーマ/タグから ACE-Step 向け詳細キャプションを生成
+    """
+    try:
+        result = await llm_service.generate_caption(
+            lyrics=request.lyrics,
+            theme=request.theme,
+            tags=request.tags,
+            language=request.language
+        )
+        
+        return CaptionGenerateResponse(
+            success=True,
+            caption=result["caption"]
+        )
+    
+    except Exception as e:
+        return CaptionGenerateResponse(
+            success=False,
+            error=str(e)
+        )
+
+
 @router.post("/full_generate", response_model=FullGenerateResponse)
 async def full_generate(request: FullGenerateRequest):
     """
@@ -162,3 +232,37 @@ async def full_generate(request: FullGenerateRequest):
             success=False,
             error=str(e)
         )
+
+
+@router.get("/llm_status")
+async def llm_status():
+    """
+    LLM接続状況を返す（外部LLM / ローカルLLM の利用可否）
+    """
+    # 外部LLM接続テスト
+    external_ok = False
+    try:
+        llm_service._ensure_client()
+        # 軽量リクエストでテスト
+        await llm_service._client.chat.completions.create(
+            model=llm_service._effective_model(),
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+            temperature=0,
+        )
+        external_ok = True
+    except Exception:
+        pass
+
+    # ローカルLLM状態
+    local_status = {"available": False, "loaded": False, "model_downloaded": False}
+    try:
+        from services.local_llm_service import local_llm_service
+        local_status = local_llm_service.get_status()
+    except Exception:
+        pass
+
+    return {
+        "external_llm": external_ok,
+        "local_llm": local_status,
+    }

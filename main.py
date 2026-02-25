@@ -12,7 +12,7 @@ import uvicorn
 import logging
 
 from config import settings, apply_cli_args
-from routers import generate, lyrics
+from routers import generate, lyrics, simple
 
 # =============================================================================
 # Application Setup
@@ -33,7 +33,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 静的ファイル
+# 静的ファイル（キャッシュ無効化ミドルウェア付き）
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+app.add_middleware(NoCacheStaticMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # テンプレート
@@ -55,6 +68,12 @@ logger = logging.getLogger("uvicorn.error")
 async def log_base_urls_on_startup():
     # uvicornがモジュールを再importするケースでも、CLI引数を確実に反映
     apply_cli_args()
+    
+    # ace_step_client はモジュールインポート時に生成済みなので、
+    # CLI引数で更新された settings の値を反映させる
+    from services.ace_step_client import ace_step_client
+    ace_step_client.base_url = settings.ace_step_api_url.rstrip("/")
+    
     logger.info("ACE-Step API Base URL: %s", settings.ace_step_api_url)
     logger.info("LLM API Base URL: %s", settings.openai_base_url)
     logger.info("LLM Model: %s", settings.openai_chat_model)
@@ -66,6 +85,7 @@ async def log_base_urls_on_startup():
 
 app.include_router(generate.router)
 app.include_router(lyrics.router)
+app.include_router(simple.router)
 
 
 # =============================================================================

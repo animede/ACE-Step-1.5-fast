@@ -151,7 +151,7 @@ class AceStepClient:
         batch_size: int = 1,
         audio_format: str = "mp3",
         seed: Optional[int] = None,
-        inference_steps: int = 60,
+        inference_steps: int = 150,
         guidance_scale: float = 3.0,
         **kwargs
     ) -> Dict[str, Any]:
@@ -384,6 +384,44 @@ class AceStepClient:
             response.raise_for_status()
             return response.json()
     
+    async def release_task_multipart(
+        self,
+        form_fields: dict,
+        src_audio_bytes: bytes = None,
+        src_audio_filename: str = "upload.mp3",
+        ref_audio_bytes: bytes = None,
+        ref_audio_filename: str = "ref.mp3",
+    ) -> dict:
+        """
+        multipart/form-data で音楽生成タスクを作成（カバーモード用）
+
+        Args:
+            form_fields: フォームフィールド辞書
+            src_audio_bytes: ソース音声バイト列
+            src_audio_filename: ソース音声ファイル名
+            ref_audio_bytes: 参照音声バイト列
+            ref_audio_filename: 参照音声ファイル名
+        """
+        files = {}
+        if src_audio_bytes:
+            files["src_audio"] = (src_audio_filename, src_audio_bytes)
+        if ref_audio_bytes:
+            files["ref_audio"] = (ref_audio_filename, ref_audio_bytes)
+
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        async with await self._get_async_client() as client:
+            response = await client.post(
+                f"{self.base_url}/release_task",
+                data=form_fields,
+                files=files,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response.json()
+
     def get_audio_url(self, file_path: str) -> str:
         """音声ファイルのURLを取得"""
         return f"{self.base_url}{file_path}"
