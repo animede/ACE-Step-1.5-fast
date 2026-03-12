@@ -63,6 +63,8 @@ python main.py
 
 http://localhost:8888
 
+![起動時GUI](startupUI.png)
+
 ## 📋 前提条件
 
 - **ACE-Step 1.5 API Server** が `localhost:8001` で稼働していること
