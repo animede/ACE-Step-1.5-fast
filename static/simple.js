@@ -66,6 +66,7 @@ let circleAnimId = null;
 let isVisualizerReady = false;
 let currentOverlayGenre = null;  // 現在オーバーレイに表示中のジャンル名
 let vizMode = 'spectrum';        // 'spectrum' | 'wave' | 'ring' | 'particles' | 'pulse'
+let vizModeUserSelected = false; // ユーザーが手動選択したらtrue、JUKEBOX開始時にリセット
 let vizParticles = [];           // particles mode state
 let vizTimeData = null;          // waveform data buffer
 
@@ -1039,9 +1040,14 @@ function initOverlay() {
     overlay.addEventListener('click', (e) => {
         // Don't close if clicking on controls
         if (e.target.closest('.overlay-controls')) return;
-        hideOverlay();
-        // Pause audio
-        document.getElementById('simple-audio').pause();
+        if (jukeboxRunning) {
+            // JUKEBOX中: オーバーレイだけ閉じる（音楽は続行）
+            hideOverlay();
+            showReturnToOverlayBtn(true);
+        } else {
+            hideOverlay();
+            document.getElementById('simple-audio').pause();
+        }
     });
 
     // Prevent control clicks from closing overlay
@@ -1061,6 +1067,7 @@ function initOverlay() {
             const mode = btn.dataset.mode;
             if (mode && mode !== vizMode) {
                 vizMode = mode;
+                vizModeUserSelected = true;
                 document.querySelectorAll('.viz-mode-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 // particlesモード切替時にパーティクルクリア
@@ -1229,6 +1236,7 @@ async function startJukebox() {
     jukeboxTrackCount = 0;
     jukeboxNextReady = null;
     jukeboxGenerating = false;
+    vizModeUserSelected = false;  // JUKEBOX開始時にランダムにリセット
 
     const btn = document.getElementById('jukebox-start-btn');
     btn.textContent = '⏹ ストップ';
@@ -1260,6 +1268,7 @@ async function startJukebox() {
     btn.textContent = '▶ スタート';
     btn.classList.remove('stop');
     npEl.classList.remove('visible');
+    showReturnToOverlayBtn(false);
     document.querySelectorAll('.genre-tile').forEach(t => t.style.pointerEvents = '');
     hideSimpleProgress();
 }
@@ -1269,10 +1278,18 @@ async function startJukebox() {
  */
 function stopJukebox() {
     jukeboxStopRequested = true;
-    showSimpleStatus('🛑 現在の曲の再生後に停止します...', 'info');
+    showSimpleStatus('🛑 停止します...', 'info');
     const btn = document.getElementById('jukebox-start-btn');
     btn.disabled = true;
     btn.textContent = '⏹ 停止中...';
+    // オーバーレイ復帰ボタンを隠す
+    showReturnToOverlayBtn(false);
+    // audioを強制停止してwaitForAudioEndを解決させる
+    const audio = document.getElementById('simple-audio');
+    audio.pause();
+    audio.currentTime = 0;
+    audio.dispatchEvent(new Event('ended'));
+    hideOverlay();
 }
 
 /**
@@ -1480,6 +1497,16 @@ function jukeboxPlayTrack(result) {
     currentResults = [{ url: result.audioUrl }];
     currentTrackIndex = 0;
     currentLyrics = result.lyrics;
+
+    // JUKEBOX: ユーザー未選択ならランダムにアニメーションモードを切替
+    if (!vizModeUserSelected) {
+        const modes = ['spectrum', 'wave', 'ring', 'particles', 'pulse'];
+        vizMode = modes[Math.floor(Math.random() * modes.length)];
+        vizParticles = [];
+        document.querySelectorAll('.viz-mode-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.mode === vizMode);
+        });
+    }
 
     // ジャンル情報をオーバーレイに反映
     currentOverlayGenre = result.genre;
