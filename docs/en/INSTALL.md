@@ -266,7 +266,6 @@ SHARE="--share"
 | `check_update.bat` | `check_update.sh` | Check and update from GitHub |
 | `merge_config.bat` | `merge_config.sh` | Merge backed-up configurations after update |
 | `install_uv.bat` | `install_uv.sh` | Install uv package manager |
-| `quick_test.bat` | `quick_test.sh` | Test environment setup |
 
 **Update workflow:**
 
@@ -329,7 +328,6 @@ REM set ACESTEP_INIT_LLM=false  # Force disable LLM (DiT-only mode)
 | `check_update.bat` | Check and update from GitHub |
 | `merge_config.bat` | Merge backed-up configurations after update |
 | `install_uv.bat` | Install uv package manager |
-| `quick_test.bat` | Test environment setup |
 | `test_git_update.bat` | Test Git update functionality |
 
 **Update workflow:**

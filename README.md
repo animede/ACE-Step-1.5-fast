@@ -70,9 +70,17 @@ LM(CoT / thinking): `acestep-5Hz-lm-0.6B` / `1.7B` / `4B`(Qwen3 ベース)。16G
 - 日本語: [docs/ja/](docs/ja/)(API、推論、インストール、GPU 互換、LM バックエンド、XL 運用ガイド、低 VRAM プローブの記録)
 - English: [docs/en/](docs/en/)(API, INFERENCE, INSTALL, DCW, LoRA / SFT training, musicians guide)
 
+## 謝辞
+
+このフォークは、ACE Studio と StepFun が共同で開発・公開した [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) の成果の上に成り立っています。
+モデル(2B / XL の DiT、5Hz LM、VAE)、学習・推論のコード、API サーバの設計はすべてオリジナルのものです。
+Junmin Gong、Yulin Song、Wenxiao Zhao、Sen Wang、Shengyuan Xu、Jing Guo をはじめとする ACE-Step チームと、
+オープンソースで公開してくださったことに深く感謝します。ここで行ったのは 16GB 級 GPU 向けの最適化と運用面の整理であり、
+音楽生成の品質はオリジナルの研究によるものです。
+
 ## ライセンスと引用
 
-コードは [MIT](./LICENSE)。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
+コードは [MIT](./LICENSE)(オリジナルと同じ)。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
 
 ```BibTeX
 @misc{gong2026acestep,

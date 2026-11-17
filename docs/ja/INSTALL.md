@@ -265,7 +265,6 @@ SHARE="--share"
 | `check_update.bat` | `check_update.sh` | GitHub から更新をチェック |
 | `merge_config.bat` | `merge_config.sh` | 更新後にバックアップされた設定をマージ |
 | `install_uv.bat` | `install_uv.sh` | uv パッケージマネージャーをインストール |
-| `quick_test.bat` | `quick_test.sh` | 環境セットアップをテスト |
 
 **更新ワークフロー：**
 
@@ -320,7 +319,6 @@ set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-1.7B
 | `check_update.bat` | GitHub から更新をチェック |
 | `merge_config.bat` | 更新後にバックアップされた設定をマージ |
 | `install_uv.bat` | uv パッケージマネージャーをインストール |
-| `quick_test.bat` | 環境セットアップをテスト |
 
 ---
 
