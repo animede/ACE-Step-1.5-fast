@@ -17,9 +17,9 @@ fi
 #   choice 2      : acestep-v15-turbo    (request {"model": "acestep-v15-turbo"}, 2B)
 #
 # All three are read from disk once at startup. Only ONE DiT lives on the GPU;
-# the others wait in pinned host memory (~23 GB RAM for the three) and are
-# swapped in over PCIe in about 2 s when requested. The primary returns to the
-# GPU on the next request for it. Fused RMSNorm, resident VAE/LM and 512-frame
+# the others wait on the host (mmap store, see below) and are
+# swapped in from the page cache in about 2 s (XL) when requested. The primary
+# returns to the GPU on the next request for it. Fused RMSNorm, resident VAE/LM and 512-frame
 # VAE decode are on (A4000, XL-SFT 300 s song: ~62-65 s).
 # -----------------------------------------------------------------------------
 
@@ -28,6 +28,11 @@ export ACESTEP_CONFIG_PATH2="${ACESTEP_CONFIG_PATH2:-acestep-v15-xl-turbo}"
 export ACESTEP_CONFIG_PATH3="${ACESTEP_CONFIG_PATH3:-acestep-v15-turbo}"
 
 export ACESTEP_DIT_RESIDENCY="${ACESTEP_DIT_RESIDENCY:-exclusive}"
+# Host side of the parked DiTs: "mmap" = bf16 safetensors files under
+# ACESTEP_DIT_RESIDENCY_DIR (default .cache/acestep/dit_residency, ~24 GB for
+# the three models, written once) mapped into the page cache -> server RSS stays
+# ~4 GB, fits a 32 GB host. "pinned" = locked RAM copies (~23 GB), swap ~0.3 s faster.
+export ACESTEP_DIT_RESIDENCY_STORE="${ACESTEP_DIT_RESIDENCY_STORE:-mmap}"
 export ACESTEP_QUANTIZATION="${ACESTEP_QUANTIZATION:-none}"
 export ACESTEP_COMPILE_MODEL="${ACESTEP_COMPILE_MODEL:-0}"
 export ACESTEP_FUSED_RMSNORM="${ACESTEP_FUSED_RMSNORM:-exact}"

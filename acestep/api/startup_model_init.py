@@ -12,6 +12,7 @@ from acestep.gpu_config import (
     set_global_gpu_config,
 )
 from acestep.api.dit_residency import RESIDENCY_ENV, DitResidency, residency_mode_from_env
+from acestep.api.dit_residency_store import store_from_env
 from acestep.api.startup_llm_init import initialize_llm_at_startup
 
 
@@ -108,10 +109,11 @@ def do_model_initialization(
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
     quantization = parse_quantization_arg(os.getenv("ACESTEP_QUANTIZATION"))
     residency_mode = residency_mode_from_env(os.getenv(RESIDENCY_ENV))
-    residency = DitResidency(active=handler) if residency_mode == "exclusive" else None
+    residency = None
+    if residency_mode == "exclusive":
+        residency = DitResidency(active=handler, store=store_from_env(os.getenv, project_root))
+        print(f"[API Server] DiT residency: exclusive (one DiT on the GPU, others parked via the {residency.store.name} store)")
     app.state.dit_residency = residency
-    if residency is not None:
-        print("[API Server] DiT residency: exclusive (one DiT on the GPU, others parked in pinned host memory)")
 
     checkpoint_dir = os.path.join(project_root, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)

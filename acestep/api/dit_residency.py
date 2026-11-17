@@ -2,9 +2,10 @@
 
 With ``ACESTEP_DIT_RESIDENCY=exclusive`` the API server keeps only one DiT on
 the GPU at a time. The other handlers' DiT weights (``handler.model`` plus the
-``silence_latent`` tensor) are parked in pinned host memory, so switching the
-active model costs a PCIe copy (about one second for a bf16 XL DiT) instead of
-a reload from disk, and the active model has the whole GPU for activations.
+``silence_latent`` tensor) are parked on the host through a store (pinned RAM
+or a memory-mapped bf16 file, see ``dit_residency_store``), so switching the
+active model costs a host-to-GPU copy (one to three seconds for a bf16 XL DiT)
+instead of a reload from disk, and the active model has the whole GPU.
 
 The queue executor serialises generations, so ``activate`` is only ever called
 from the single generation thread; no locking is needed.
@@ -18,6 +19,8 @@ from typing import Any, Optional
 import torch
 from loguru import logger
 
+from acestep.api.dit_residency_store import PinnedStore, named_tensors
+
 RESIDENCY_ENV = "ACESTEP_DIT_RESIDENCY"
 
 
@@ -27,72 +30,34 @@ def residency_mode_from_env(value: Optional[str]) -> str:
     return "exclusive" if normalized in {"exclusive", "swap", "1", "true"} else "shared"
 
 
-_MASTER_ATTR = "_dit_residency_masters"
-
-
-def _named_tensors(model: torch.nn.Module):
-    yield from model.named_parameters()
-    yield from model.named_buffers()
-
-
-def _park_to_masters(handler: Any, model: torch.nn.Module) -> int:
-    """Point every parameter/buffer at a persistent pinned host copy and drop the GPU copy.
-
-    Inference never changes the weights, so the host copy made on the first park
-    stays valid: later parks are just a re-point (no device-to-host copy, no
-    re-pinning), which is what makes the swap cheap.
-    """
-    masters = getattr(handler, _MASTER_ATTR, None)
-    if masters is None:
-        masters = {}
-        setattr(handler, _MASTER_ATTR, masters)
-    copied = 0
-    for name, tensor in list(_named_tensors(model)):
-        master = masters.get(name)
-        if master is None or master.shape != tensor.shape or master.dtype != tensor.dtype:
-            host = tensor.data.detach().to("cpu")
-            try:
-                host = host.pin_memory()
-            except (RuntimeError, NotImplementedError):
-                pass  # e.g. torchao tensor subclasses: pageable copy, just slower to upload
-            masters[name] = master = host
-            copied += 1
-        tensor.data = master
-    return copied
+def _label(handler: Any) -> str:
+    params = getattr(handler, "last_init_params", None) or {}
+    return str(params.get("config_path") or type(handler).__name__)
 
 
 class DitResidency:
     """Track which handler's DiT currently lives on the GPU and swap on demand."""
 
-    def __init__(self, active: Any = None):
+    def __init__(self, active: Any = None, store: Any = None):
         self.active = active
+        self.store = store or PinnedStore()
 
     def prime(self, handler: Any) -> None:
-        """Make the pinned host copies of ``handler``'s DiT now (it stays on the GPU).
+        """Prepare the host side of ``handler``'s DiT now (it stays on the GPU).
 
-        Doing this at startup moves the one-time host-copy cost (about 8 s for a
-        bf16 XL DiT) out of the first model switch.
+        Moves the one-time cost (host copies, or writing the mmap file) out of
+        the first model switch.
         """
         model = getattr(handler, "model", None)
         if model is None:
             return
         started = time.time()
-        masters = getattr(handler, _MASTER_ATTR, None) or {}
-        setattr(handler, _MASTER_ATTR, masters)
-        for name, tensor in list(_named_tensors(model)):
-            if name in masters:
-                continue
-            host = tensor.data.detach().to("cpu")
-            try:
-                host = host.pin_memory()
-            except (RuntimeError, NotImplementedError):
-                pass
-            masters[name] = host
-        logger.info("[dit_residency] primed host copies for {} in {:.2f}s",
-                    getattr(handler, "model_name", type(handler).__name__), time.time() - started)
+        made = self.store.prepare(handler, model)
+        logger.info("[dit_residency] primed {} ({} store, {} tensors) in {:.2f}s",
+                    _label(handler), self.store.name, made, time.time() - started)
 
     def park(self, handler: Any) -> None:
-        """Move ``handler``'s DiT to pinned host memory and free its VRAM."""
+        """Point ``handler``'s DiT at its host copies and free its VRAM."""
         model = getattr(handler, "model", None)
         if model is None:
             return
@@ -101,7 +66,12 @@ class DitResidency:
             torch.cuda.synchronize()
         from acestep.core.generation.handler.dit_fusions import drop_stacked_weights
         drop_stacked_weights(model)  # fused q/k/v and gate/up buffers would otherwise stay on the GPU
-        copied = _park_to_masters(handler, model)
+        masters = self.store.masters(handler, model)
+        for name, tensor in list(named_tensors(model)):
+            master = masters.get(name)
+            if master is None or master.shape != tensor.shape:
+                raise RuntimeError(f"[dit_residency] no host copy for {name} in the {self.store.name} store")
+            tensor.data = master
         silence = getattr(handler, "silence_latent", None)
         if silence is not None:
             handler.silence_latent = silence.to("cpu")
@@ -109,10 +79,7 @@ class DitResidency:
             torch.cuda.empty_cache()
         if self.active is handler:
             self.active = None
-        logger.info(
-            "[dit_residency] parked {} on CPU ({} host copies made) in {:.2f}s",
-            getattr(handler, "model_name", type(handler).__name__), copied, time.time() - started,
-        )
+        logger.info("[dit_residency] parked {} on CPU ({} store) in {:.2f}s", _label(handler), self.store.name, time.time() - started)
 
     def activate(self, handler: Any) -> None:
         """Ensure ``handler``'s DiT is on its device, parking the current one first."""
@@ -123,19 +90,18 @@ class DitResidency:
         model = getattr(handler, "model", None)
         device = getattr(handler, "device", "cuda")
         if model is None or str(device) == "cpu":
+            self.store.release(handler)
             self.active = handler
             return
         started = time.time()
-        for _name, tensor in list(_named_tensors(model)):
+        for _name, tensor in list(named_tensors(model)):
             if tensor.device.type == "cpu":
-                tensor.data = tensor.data.to(device, non_blocking=True)
+                tensor.data = tensor.data.to(device, non_blocking=tensor.data.is_pinned())
         silence = getattr(handler, "silence_latent", None)
         if silence is not None:
             handler.silence_latent = silence.to(device)
         if torch.cuda.is_available():
             torch.cuda.synchronize()
+        self.store.release(handler)
         self.active = handler
-        logger.info(
-            "[dit_residency] activated {} on {} in {:.2f}s",
-            getattr(handler, "model_name", type(handler).__name__), device, time.time() - started,
-        )
+        logger.info("[dit_residency] activated {} on {} in {:.2f}s", _label(handler), device, time.time() - started)

@@ -7,7 +7,7 @@ ACE-Step 1.5 のフォーク。**16GB 級 GPU(RTX A4000)で XL(4B)モデルを�
 
 - API サーバが `ACESTEP_QUANTIZATION` を受け取る(上流は量子化を一切渡さず常に bf16)。
 - ローダ: CPU で量子化してから GPU へ(読み込みピーク = 常駐)、compile は `decoder.forward` に当てる。
-- `ACESTEP_DIT_RESIDENCY=exclusive`: GPU に DiT を 1 本だけ置き、他は CPU の pinned メモリに退避して約 2 秒で入れ替える。
+- `ACESTEP_DIT_RESIDENCY=exclusive`: GPU に DiT を 1 本だけ置き、他はホスト側に退避して約 2 秒で入れ替える。退避先は `ACESTEP_DIT_RESIDENCY_STORE=mmap`(bf16 の safetensors をページキャッシュ経由で mmap。サーバの常駐メモリ約 4GB で 32GB のホストに収まる)または `pinned`(固定 RAM に 3 本で約 23GB)。
 - `ACESTEP_FUSED_RMSNORM=exact`: DiT の RMSNorm を融合カーネルに(1 step −14%)。
 - `ACESTEP_RESIDENT_COMPONENTS` / `ACESTEP_VAE_DECODE_CHUNK_SIZE` / `ACESTEP_MP3_COMPRESSION_LEVEL`: 拡散以外の削減。
 - `ACESTEP_DIT_FUSIONS`(attention/MLP/adaLN の eager 融合)、`ACESTEP_QUANTIZATION=int8_plain`: 実装済みだが効果が小さく既定 OFF。
