@@ -33,12 +33,20 @@
 Linux x86_64 + NVIDIA(CUDA 12.8)向け。`--large` で LM 4B も取得、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
 ### Windows の場合
 
-1. NVIDIA ドライバを CUDA 12.8 以上に対応したものにしておく(`nvidia-smi` の CUDA Version で確認)。Python や CUDA Toolkit のインストールは不要(uv が Python 3.11 を自動で用意し、torch と flash-attn はビルド済みの wheel を使う)。
-2. リポジトリを取得する。Git があれば `git clone https://github.com/animede/ACE-Step-1.5-fast.git`。Git が無ければ `winget install --id Git.Git -e` で入れるか、GitHub の「Code → Download ZIP」を展開する。
-3. 展開したフォルダで `setup.bat` を実行(uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得 約 45GB。uv は winget があれば winget で、無ければ公式インストーラで入る。途中で止まっても再実行すれば続きから)。
-4. `run_api_server_fast.bat` でサーバを起動し、ブラウザで `http://localhost:8001/ui/` を開く。停止は `close_api_server.bat`。
+前提は NVIDIA ドライバ(CUDA 12.8 以上対応)だけです。Python・CUDA Toolkit・Visual Studio は不要(uv が Python 3.11 を用意し、torch と flash-attn はビルド済み wheel)。コマンドプロンプトで上から順に実行します。
 
-設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のようにコマンドプロンプトで指定します。Windows 版はこの手順で動くように作ってありますが、実機での動作確認はまだ行っていません。問題があれば Issue で報告してください。
+```bat
+winget install --id Git.Git -e
+git clone https://github.com/animede/ACE-Step-1.5-fast.git
+cd ACE-Step-1.5-fast
+setup.bat
+run_api_server_fast.bat
+```
+
+- 起動後にブラウザで `http://localhost:8001/ui/` を開く。停止は `close_api_server.bat`。
+- `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトで `setup.bat` をもう一度。
+- Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
+- 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください。
 
 ## 起動
 

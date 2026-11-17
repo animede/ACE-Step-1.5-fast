@@ -28,14 +28,26 @@ Open `http://localhost:8001/ui/` for the evaluation UI; the REST API is on `http
 
 ## Windows
 
-Prerequisites: Windows 10 / 11 (64-bit), an NVIDIA driver supporting CUDA 12.8, 32 GB RAM, 80 GB disk. No Python, CUDA Toolkit or Visual Studio needed (uv provisions Python 3.11; torch 2.7.1+cu128 and flash-attn come as prebuilt wheels).
+Prerequisites: Windows 10 / 11 (64-bit), an NVIDIA driver supporting CUDA 12.8, 32 GB RAM, 80 GB disk. No Python, CUDA Toolkit or Visual Studio needed.
+Run these in a command prompt, top to bottom:
 
-1. Get the repository: `git clone https://github.com/animede/ACE-Step-1.5-fast.git` (install Git with `winget install --id Git.Git -e` if needed), or download the ZIP from GitHub ("Code -> Download ZIP") and extract it.
-2. Run `setup.bat` in that folder (`--large` also fetches the 4B LM, `--no-models` builds the environment only). uv is installed with winget when available (`winget install --id astral-sh.uv -e`), otherwise with the official PowerShell installer; if `uv` is not found right after installing, open a new command prompt and run setup.bat again. Safe to re-run.
-3. Run `run_api_server_fast.bat` and open `http://localhost:8001/ui/`. Stop with `close_api_server.bat` (`close_api_server.bat 8002` for another port).
+```bat
+winget install --id Git.Git -e
+git clone https://github.com/animede/ACE-Step-1.5-fast.git
+cd ACE-Step-1.5-fast
+setup.bat
+run_api_server_fast.bat
+```
 
-Override settings before launching, e.g. `set ACESTEP_GPU_PROFILE=large` (same variables as 起動コマンド.md). `PYTORCH_ALLOC_CONF` is not set on Windows.
-The Windows scripts have not been exercised on a real machine yet; please open an issue if something fails.
+```bat
+close_api_server.bat
+```
+
+- Then open `http://localhost:8001/ui/`. Stop another port with `close_api_server.bat 8002`.
+- `setup.bat`: installs uv (winget when available: `winget install --id astral-sh.uv -e`, otherwise the official PowerShell installer), provisions Python 3.11 and `.venv` (`uv sync --frozen`), checks the GPU, downloads the models. `setup.bat --large` also fetches the 4B LM, `setup.bat --no-models` builds the environment only. Safe to re-run; if `uv` is not found right after installing, open a new command prompt and run it again.
+- Without Git: download the ZIP from GitHub ("Code -> Download ZIP"), extract it and continue from `setup.bat` in that folder.
+- Override settings before launching, e.g. `set ACESTEP_GPU_PROFILE=large` (same variables as 起動コマンド.md). `PYTORCH_ALLOC_CONF` is not set on Windows.
+- The Windows scripts have not been exercised on a real machine yet; please open an issue if something fails.
 
 ## Manual steps
 

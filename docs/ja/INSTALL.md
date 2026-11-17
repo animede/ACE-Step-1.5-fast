@@ -28,14 +28,26 @@ cd ACE-Step-1.5-fast
 
 ## Windows
 
-前提: Windows 10 / 11(64 bit)、NVIDIA ドライバ(CUDA 12.8 以上対応)、メモリ 32GB 以上、ディスク 80GB。Python・CUDA Toolkit・Visual Studio は不要(uv が Python 3.11 を用意し、torch 2.7.1+cu128 と flash-attn はビルド済み wheel)。
+前提: Windows 10 / 11(64 bit)、NVIDIA ドライバ(CUDA 12.8 以上対応)、メモリ 32GB 以上、ディスク 80GB。Python・CUDA Toolkit・Visual Studio は不要。
+コマンドプロンプトで上から順に実行する。
 
-1. リポジトリを取得: Git があれば `git clone https://github.com/animede/ACE-Step-1.5-fast.git`。Git が無ければ `winget install --id Git.Git -e` で入れるか、GitHub の「Code → Download ZIP」を展開。
-2. 展開したフォルダで `setup.bat` を実行(`--large` で LM 4B も、`--no-models` で環境だけ)。uv は winget があれば `winget install --id astral-sh.uv -e`、無ければ公式の PowerShell インストーラで入る。インストール直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトでもう一度実行。再実行は安全。
-3. `run_api_server_fast.bat` で起動 → `http://localhost:8001/ui/`。停止は `close_api_server.bat`(ポート指定は `close_api_server.bat 8002`)。
+```bat
+winget install --id Git.Git -e
+git clone https://github.com/animede/ACE-Step-1.5-fast.git
+cd ACE-Step-1.5-fast
+setup.bat
+run_api_server_fast.bat
+```
 
-設定は起動前に `set ACESTEP_GPU_PROFILE=large` のように指定する(変数は 起動コマンド.md の表と同じ)。`PYTORCH_ALLOC_CONF` は Windows では付けていない。
-実機での動作確認はまだ行っていないので、問題があれば Issue で報告を。
+```bat
+close_api_server.bat
+```
+
+- 起動後は `http://localhost:8001/ui/`。別ポートの停止は `close_api_server.bat 8002`。
+- `setup.bat`: uv の導入(winget があれば `winget install --id astral-sh.uv -e`、無ければ公式の PowerShell インストーラ)→ Python 3.11 と `.venv` の作成(`uv sync --frozen`)→ GPU 確認 → モデル取得。`setup.bat --large` で LM 4B も、`setup.bat --no-models` で環境だけ。再実行は安全。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトでもう一度。
+- Git を入れない場合は GitHub の「Code → Download ZIP」を展開し、そのフォルダで `setup.bat` 以降を実行。
+- 設定は起動前に `set ACESTEP_GPU_PROFILE=large` のように指定(変数は 起動コマンド.md の表と同じ)。`PYTORCH_ALLOC_CONF` は Windows では付けていない。
+- 実機での動作確認はまだ行っていないので、問題があれば Issue で報告を。
 
 ## 手で行う場合
 
