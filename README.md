@@ -79,6 +79,13 @@ run_easy_music.bat 8888
 ```
 
 - ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_easy_music.bat 8890`)。停止は `close_api_server.bat`。
+- 歌詞生成の LLM(OpenAI 互換 API。既定は `http://localhost:11434/v1` = Ollama、無ければ CPU 上の GGUF にフォールバック)を指定するには、起動引数か `easy-music\.env` を使う:
+
+```bat
+run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
+```
+
+`easy-music\.env` に書く場合は `OPENAI_BASE_URL=http://LLM_HOST:11434/v1`、`OPENAI_API_KEY=YOUR_KEY`、`OPENAI_CHAT_MODEL=gemma3:latest`(起動引数が優先)。ACE サーバは `--ace-url`、背景画像サーバは `--img-url` で同様に指定できる。
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトで `setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください。
