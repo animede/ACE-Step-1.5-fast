@@ -86,10 +86,19 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 ![ACE-Step-client-pro の起動画面](client-pro/startupUI.png)
 `./setup.sh` が専用の環境(`client-pro/.venv`)も作るので、起動は次の 2 つです。
 
+ターミナル 1(API サーバ、起動したまま):
+
 ```bash
-./run_api_server_fast.sh     # API サーバ(8001)
-./run_client_pro.sh          # Web アプリ(8888)→ http://localhost:8888。8888 が使用中なら ./run_client_pro.sh --port 8890
+./run_api_server_fast.sh
 ```
+
+ターミナル 2(Web アプリ。サーバが起動してから):
+
+```bash
+./run_client_pro.sh
+```
+
+ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_client_pro.sh --port 8890`。
 
 - 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`client-pro/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
 - アプリは `model` を送らないので生成は常に primary(xl-sft)です。turbo は `/ui/` から使えます。
