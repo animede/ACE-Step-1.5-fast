@@ -2,21 +2,21 @@
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
-上流(git remote `upstream`)の 2026-05-04 時点 `6c1b2ef` を土台にし、上流の取り込みは予定していません。
+オリジナル(ace-step/ACE-Step-1.5、git remote `upstream`)の 2026-05-04 時点 `6c1b2ef` を土台にし、オリジナルの取り込みは予定していません。
 
 - 実測(A4000、XL-SFT、300 秒 1 曲、32 step、mp3・CoT あり、音は bf16 のまま): **84 秒 → 62〜65 秒**
 - サーバの常駐ホストメモリ 約 4GB(32GB の専用機で動く)
 - 評価用の Web UI(Gradio 不要)を API サーバが `/ui/` で配信
 
-## 上流との違い
+## オリジナルとの違い
 
 | 項目 | 内容 |
 |---|---|
 | 排他常駐 | `ACESTEP_DIT_RESIDENCY=exclusive`: GPU に DiT を 1 本だけ置き、他はホスト側に退避して約 2 秒で入れ替える。退避先は `ACESTEP_DIT_RESIDENCY_STORE=mmap`(bf16 の safetensors をページキャッシュ経由で mmap、常駐 RSS 約 4GB)または `pinned`(固定 RAM に 3 本で約 23GB) |
 | RMSNorm 融合 | `ACESTEP_FUSED_RMSNORM=exact`: DiT の RMSNorm を融合カーネルに(1 step −14%、bf16 の丸め差のみ) |
 | 拡散以外の削減 | `ACESTEP_RESIDENT_COMPONENTS`(VAE / テキストエンコーダを退避しない)、`ACESTEP_VAE_DECODE_CHUNK_SIZE`、`ACESTEP_MP3_COMPRESSION_LEVEL`(任意) |
-| API サーバの修正 | `ACESTEP_QUANTIZATION` を受け取る(上流は量子化を渡さず常に bf16)。ローダは CPU で量子化してから GPU へ、compile は `decoder.forward` に当てる |
-| 同時実行 | LM(CoT)の呼び出しを直列化(上流は同時実行で CUDA が壊れる)。別モデルへの切替は実行中のジョブを待ってから |
+| API サーバの修正 | `ACESTEP_QUANTIZATION` を受け取る(オリジナルは量子化を渡さず常に bf16)。ローダは CPU で量子化してから GPU へ、compile は `decoder.forward` に当てる |
+| 同時実行 | LM(CoT)の呼び出しを直列化(オリジナルは同時実行で CUDA が壊れる)。別モデルへの切替は実行中のジョブを待ってから |
 | モデル管理 API | `GET /v1/residency`、`POST /v1/residency/activate`(事前切替)、`POST /v1/init` の排他常駐対応(slot の入れ替え) |
 | Web UI | `webui/`(HTML + JS)。生成・cover・repaint・簡易モード・LM 設定・結果の再生と履歴・モデル管理 |
 | 実装済みだが既定 OFF | `ACESTEP_DIT_FUSIONS`(attention / MLP / adaLN の eager 融合、効果 ≤3%)、`ACESTEP_QUANTIZATION=int8_plain` |
@@ -40,7 +40,7 @@ XL を使うには `acestep-v15-xl-sft` / `acestep-v15-xl-turbo`(各 19GB)が必
 ```bash
 ./run_api_server_fast.sh         # 16GB 向けの標準: XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
 ./run_api_server_multimodel.sh   # 複数 DiT を同時常駐(48GB 級向け)。高速化の環境変数は手で付ける
-./start_api_server.sh            # 上流の起動スクリプト(.env と自動更新の確認つき)
+./start_api_server.sh            # オリジナルの起動スクリプト(.env と自動更新の確認つき)
 ```
 
 `run_api_server_fast.sh` は環境変数で上書きできます(例: `ACESTEP_API_PORT=8002`、`ACESTEP_QUEUE_WORKERS=2`、`ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B`)。
@@ -51,7 +51,7 @@ XL を使うには `acestep-v15-xl-sft` / `acestep-v15-xl-turbo`(各 19GB)が必
 
 - **Web UI**: サーバ起動後に `http://<host>:<port>/ui/` を開く。モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint、簡易モード(説明から LM が曲を考える)、LM の設定、結果の再生と履歴(seed の再利用)、サーバのモデル管理(GPU 上のモデルの確認・事前切替・slot の入れ替え)。
 - **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ(未ロードのモデル名は primary に置き換わり、結果の `dit_model` で分かる)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
-- **CLI / 学習**: `cli.py`、`train.py`、[docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(上流のまま)。
+- **CLI / 学習**: `cli.py`、`train.py`、[docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(オリジナルのまま)。
 
 ## モデル
 
@@ -73,7 +73,7 @@ LM(CoT / thinking): `acestep-5Hz-lm-0.6B` / `1.7B` / `4B`(Qwen3 ベース)。16G
 
 ## ライセンスと引用
 
-コードは [MIT](./LICENSE)。モデルの利用条件は各モデルカードに従ってください。上流の研究への引用:
+コードは [MIT](./LICENSE)。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
 
 ```BibTeX
 @misc{gong2026acestep,
