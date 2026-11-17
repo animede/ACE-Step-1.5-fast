@@ -1,0 +1,1240 @@
+"""
+LLM Service - 作詞・タグ生成サービス
+
+OpenAI互換APIを使用した歌詞生成とタグ推奨
+外部LLM接続失敗時はローカルGGUFモデル(Qwen3-1.7B)にフォールバック
+"""
+import json
+import logging
+import re
+from typing import Optional, Dict, Any, Tuple
+from openai import AsyncOpenAI
+
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+# システムプロンプト: 作詞
+LYRICS_GENERATE_SYSTEM_PROMPT = """You are a professional lyricist who creates song lyrics for AI music generation (ACE-Step 1.5).
+
+CRITICAL OUTPUT RULES:
+1. Start with a JSON metadata line, then output ONLY the lyrics with structure tags
+2. Use ONLY official ACE-Step structure tags (see list below)
+3. Do NOT include timestamps like (0:00-0:05) - ACE-Step does not use them
+4. NEVER include romanization/romaji in parentheses or on separate lines
+   BAD:  青い空の下 (Aoi sora no shita)   ← WRONG, will break music generation
+   BAD:  (Aoi sora no shita, kaze ga utau) ← WRONG, romaji line
+   GOOD: 青い空の下                         ← CORRECT, Japanese only
+5. Write lyrics line by line, each line on its own
+6. Each line must contain ONLY the lyrics text in the target language — no translations, no pronunciation guides
+
+REQUIRED FIRST LINE FORMAT (JSON):
+{"recommended_duration": 90, "parts": {"verse1": 20, "chorus1": 25, "verse2": 20, "chorus2": 25}}
+
+- recommended_duration: Total song length in seconds (typically 60-180)
+- parts: Estimated duration for each part in seconds
+
+OFFICIAL ACE-Step STRUCTURE TAGS:
+  Vocal sections (put lyrics UNDER these):
+    [Verse]        — Story, narrative. 4-6 lines (15-25 sec)
+    [Chorus]       — Emotional peak, main hook. 4-6 lines (20-30 sec)
+    [Pre-Chorus]   — Build-up to chorus. 2-4 lines (8-15 sec)
+    [Bridge]       — Contrast/key change. 2-4 lines (10-15 sec)
+  Instrumental sections (do NOT put lyrics under these — vocals will NOT be generated):
+    [Intro]        — Instrumental opening (5-10 sec). NEVER put lyrics here.
+    [Outro]        — Instrumental ending (5-10 sec). NEVER put lyrics here.
+    [Instrumental] — Pure instrumental section
+  Style hints can be appended with "-":
+    [Chorus - anthemic], [Bridge - whispered], [Verse - melancholic]
+
+CRITICAL RULE — NO LYRICS UNDER INSTRUMENTAL TAGS:
+  [Intro], [Outro], [Instrumental], [Guitar Solo], etc. = NO vocals.
+  If you want vocals at the start of a song, use [Verse], NOT [Intro].
+  If you want vocals at the end, use [Chorus] or [Bridge], NOT [Outro].
+
+LYRICS VOLUME GUIDELINES:
+- ACE-Step sings roughly 2-3 words per second (English) / 3-5 characters per second (Japanese)
+- For 47 seconds: aim for 90-140 words (EN) or 130-200 characters (JA)
+- For 60 seconds: aim for 120-180 words (EN) or 170-260 characters (JA)
+- For 120 seconds: aim for 240-360 words (EN) or 340-520 characters (JA)
+- Too many lyrics → rushed singing, garbled output
+- Too few lyrics → long pauses, unwanted repetition
+- Keep each line to 6-10 syllables for natural singing
+
+VOCAL EXPRESSION TECHNIQUES:
+- UPPERCASE = stronger vocal intensity:  "WE ARE THE CHAMPIONS!" (shouting/emphasis)
+- (parentheses) = backing vocals/echo:  "We rise together (together)"
+- Extended vowels = sustained notes:     "Feeeling so aliiive" (use sparingly, effect unstable)
+
+STYLE GUIDELINES:
+- Match the mood and genre specified
+- Use natural, singable phrases
+- If Japanese: Write ONLY in Japanese (kanji/hiragana/katakana mix). NEVER add romaji.
+- If English: Write ONLY in English
+- Keep vocabulary natural for singing
+- IMPORTANT: Adding romanization doubles the lyrics and causes ACE-Step to sing garbled output
+- Separate sections with blank lines for clarity
+
+SECTION ROLE GUIDELINES:
+- [Verse]: Build the narrative. Describe a scene, tell a story; vary the melody to sustain interest.
+- [Pre-Chorus]: Heighten anticipation. Short transitional section that builds energy toward the chorus.
+- [Chorus]: Emotional peak. The main hook — repeated 2-3 times, maximum energy, most memorable lines.
+- [Bridge]: Contrast and pivot. New perspective or emotional shift (2-4 lines) before the final chorus.
+
+TYPICAL SONG STRUCTURE:
+  [Intro]  ← instrumental only, no lyrics
+  [Verse 1]
+  [Pre-Chorus]
+  [Chorus]
+  [Verse 2]
+  [Chorus]
+  [Bridge]
+  [Chorus]
+  [Outro]  ← instrumental only, no lyrics
+
+MOOD-SPECIFIC VOCABULARY (if a mood is specified, incorporate these words and imagery naturally):
+- Bright/Happy:     輝く、笑顔、光、夢、希望、踊る、楽しい、嬉しい
+- Sad/Melancholic:  涙、消えていく、遠くなる、忘れられない、揺れる影、切ない
+- Intense/Powerful: 叫ぶ、燃える、嵐、砕く、限界、炎、立ち向かう
+- Gentle/Calm:      そっと、静かに、やわらかく、ささやく、流れる、なだらかに
+- Mysterious:       闇、星屑、幻、迷宮、霧の中、見えない、影、謎
+"""
+
+# システムプロンプト: タグ生成
+TAGS_GENERATE_SYSTEM_PROMPT = """You are a music metadata expert. Based on the given lyrics and theme, generate minimal music tags for AI music generation.
+
+NOTE: The downstream AI (ACE-Step format_input) will handle detailed arrangement and instrumentation automatically.
+Your job is to provide only the high-level direction — genre, mood, and vocal type.
+
+OUTPUT FORMAT (JSON only):
+{
+    "genre": "primary genre",
+    "tags": "mood1, mood2, vocal type",
+    "bpm": 120,
+    "key_scale": "C major"
+}
+
+GUIDELINES:
+- genre: ONE primary genre (e.g. "J-Pop", "Rock", "Jazz") — no subgenres
+- tags: 2-3 items ONLY: one or two mood words + one vocal type
+  - Mood examples: upbeat, melancholic, energetic, calm, romantic, dark, hopeful, nostalgic
+  - Vocal examples: female vocal, male vocal, choir, breathy female, powerful male
+  - DO NOT list instruments — leave that to ACE-Step
+- bpm: estimated BPM (60-180)
+- key_scale: estimated key (e.g. "C major", "A minor")
+"""
+
+
+# システムプロンプト: ナラティブキャプション生成
+CAPTION_GENERATE_SYSTEM_PROMPT = """You are a music producer writing brief style hints for the ACE-Step AI music generator.
+
+ACE-Step's thinking mode will expand your hint into a full production internally.
+Your job is to write a SHORT TRIGGER PHRASE — just enough to set the direction.
+
+STRICT OUTPUT RULES:
+1. Output ONLY the caption — no titles, no "Note:", no markdown, no commentary
+2. Write in English only
+3. Write exactly 1 sentence (30-60 words)
+4. Write a natural English sentence — NOT a comma-separated tag list
+5. DO NOT specify instruments, mixing, or arrangement — ACE-Step handles those
+
+WHAT TO INCLUDE (all three, briefly):
+1. GENRE + ERA — e.g. "2000s J-Pop", "classic rock"
+2. MOOD — one or two words: "nostalgic", "energetic and anthemic"
+3. VOCAL — e.g. "clear female vocal", "powerful male vocal", "no vocals"
+
+GOOD EXAMPLES:
+"A dramatic anime opening with an intense, emotionally charged atmosphere and a powerful male vocal."
+"A nostalgic 1980s city-pop track with a warm, breezy mood and a smooth female vocal."
+"A relaxed lo-fi hip-hop instrumental with a late-night dreamy mood."
+
+BAD EXAMPLE (never do this):
+"Anime song, dramatic, energetic, emotional, opening theme, Japanese anime soundtrack."
+
+GENRE-SPECIFIC ERA HINTS:
+- Japanese 70s Kayokyoku → "1970s Japanese kayokyoku"
+- 80s Japanese Folk → "1980s Japanese folk singer-songwriter"
+- 90s J-POP → "1990s J-Pop"
+- Vocaloid → "Vocaloid electronic style"
+- Anime Song → "anime opening/ending song"
+- Enka → "traditional Japanese enka"
+- New Music → "1970s-80s Japanese new music"
+- City Pop → "1980s Japanese city pop"
+"""
+
+CAPTION_GENERATE_DETAILED_PROMPT = """You are a music producer writing detailed production descriptions for the ACE-Step AI music generator.
+
+ACE-Step will NOT use its internal thinking process this time, so YOUR caption must be the complete musical blueprint.
+Write a DETAILED, SPECIFIC production description that fully specifies the sound world.
+
+STRICT OUTPUT RULES:
+1. Output ONLY the caption — no titles, no "Note:", no markdown, no lists, no commentary
+2. Write in English only
+3. Write 3-5 COMPLETE PROSE SENTENCES (100-200 words)
+4. NEVER output a comma-separated keyword list — write natural English sentences with subject and verb
+5. Never start with "Sure" / "Here is" / "This is a". Start directly with the genre/style.
+
+WHAT TO INCLUDE (all of the following, in prose sentences):
+1. GENRE + ERA — e.g. "2000s J-Pop", "classic rock", "lo-fi hip-hop"
+2. MOOD/ATMOSPHERE — detailed emotional description
+3. KEY INSTRUMENTS — 2-4 specific instruments and their playing style
+4. RHYTHM — tempo feel, drum pattern character
+5. VOCAL — gender, tone quality, delivery style
+6. PRODUCTION TEXTURE — one word: "warm", "crisp", "lo-fi", "polished"
+
+GOOD EXAMPLE:
+"A 2000s J-Pop track with a nostalgic and bittersweet atmosphere. Shimmering synth pads and clean piano chords establish a warm foundation, supported by a crisp electronic drum beat with subtle snare snaps and a smooth, melodic bassline. The lead vocal is a clear, youthful female voice with an earnest delivery typical of anime themes. The overall production is polished and emotionally uplifting."
+"""
+
+
+class LLMService:
+    """LLMサービス - 作詞・タグ生成"""
+    
+    def __init__(
+        self,
+        base_url: str = None,
+        api_key: str = None,
+        model: str = None
+    ):
+        # NOTE:
+        # `llm_service` is instantiated at import time. CLI args / .env may be
+        # applied later (e.g., when running via uvicorn which re-imports
+        # `main:app`). Therefore, we keep only optional overrides here and
+        # lazily create (or recreate) the client per-request based on the
+        # latest `settings`.
+        self._base_url_override = base_url
+        self._api_key_override = api_key
+        self._model_override = model
+
+        self._client: Optional[AsyncOpenAI] = None
+        self._client_base_url: Optional[str] = None
+        self._client_api_key: Optional[str] = None
+
+    def _effective_base_url(self) -> str:
+        return self._base_url_override or settings.openai_base_url
+
+    def _effective_api_key(self) -> str:
+        return self._api_key_override or settings.openai_api_key
+
+    def _effective_model(self) -> str:
+        return self._model_override or settings.openai_chat_model
+
+    def _ensure_client(self) -> None:
+        base_url = self._effective_base_url()
+        api_key = self._effective_api_key()
+        if (
+            self._client is None
+            or self._client_base_url != base_url
+            or self._client_api_key != api_key
+        ):
+            self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+            self._client_base_url = base_url
+            self._client_api_key = api_key
+    
+    async def chat(
+        self,
+        user_message: str,
+        system_prompt: str,
+        max_tokens: int = 2000,
+        temperature: float = 0.8
+    ) -> str:
+        """
+        LLMにチャットリクエストを送信
+        
+        外部LLM失敗時はローカルLLM(Qwen3-1.7B GGUF)にフォールバック
+        """
+        # --local-llm モード: 外部LLMをスキップ
+        if not settings.use_local_llm_only:
+            # まず外部LLMを試行
+            try:
+                self._ensure_client()
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ]
+                completion = await self._client.chat.completions.create(
+                    model=self._effective_model(),
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+                return completion.choices[0].message.content
+            except Exception as ext_error:
+                logger.warning(f"外部LLM接続失敗: {ext_error}")
+        else:
+            logger.info("内蔵LLMモード: 外部LLMをスキップ")
+
+        # ローカルLLM
+        try:
+            from services.local_llm_service import local_llm_service
+            if local_llm_service.is_available:
+                if not settings.use_local_llm_only:
+                    logger.info("ローカルLLMにフォールバックします")
+                return await local_llm_service.chat(
+                    user_message=user_message,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+        except Exception as local_error:
+            logger.error(f"ローカルLLMも失敗: {local_error}")
+
+        # 失敗
+        raise ConnectionError("LLMが利用できません。外部LLM接続または内蔵LLMの初期化を確認してください")
+    
+    async def generate_lyrics(
+        self,
+        theme: str,
+        genre: str = "",
+        language: str = "Japanese",
+        mood: str = "",
+        vocal: str = ""
+    ) -> Dict[str, Any]:
+        """
+        歌詞を生成
+        
+        Args:
+            theme: 曲のテーマ/シナリオ
+            genre: ジャンル
+            language: 言語
+            mood: ムード
+            vocal: ボーカルタイプ
+        
+        Returns:
+            {
+                "lyrics": str,  # 構造タグ付き歌詞
+                "recommended_duration": int,  # 推奨秒数
+                "parts": dict  # パート別秒数
+            }
+        """
+        prompt = f"""Create lyrics for the following:
+Theme: {theme}
+Genre: {genre or 'any'}
+Language: {language}
+Mood: {mood or 'match the theme'}
+Vocal style: {vocal or 'match the genre'}
+
+Generate complete song lyrics with structure tags.
+IMPORTANT: Do NOT add romanization or pronunciation in parentheses. Output lyrics in {language} ONLY."""
+        
+        # 最大2回試行（ローカルLLMがJSONのみ出力した場合のリトライ）
+        for attempt in range(2):
+            response = await self.chat(
+                user_message=prompt,
+                system_prompt=LYRICS_GENERATE_SYSTEM_PROMPT,
+                temperature=0.85
+            )
+            
+            result = self._parse_lyrics_response(response)
+            
+            # 歌詞が空 or 構造タグが無い場合はリトライ
+            if result["lyrics"] and "[" in result["lyrics"]:
+                return result
+            
+            if attempt == 0:
+                logger.warning(
+                    "歌詞生成: 歌詞が空または構造タグ不足（リトライします）response=%s",
+                    response[:200]
+                )
+        
+        # 2回とも失敗 → 結果をそのまま返す（空でもフロントで対処可能）
+        logger.warning("歌詞生成: リトライ後も歌詞が不十分です")
+        return result
+    
+    def _parse_lyrics_response(self, response: str) -> Dict[str, Any]:
+        """歌詞レスポンスをパース"""
+        lines = response.strip().split("\n")
+        
+        # 最初の行からJSONメタデータを抽出
+        metadata = {
+            "recommended_duration": 90,
+            "parts": {}
+        }
+        lyrics_start = 0
+        
+        # --- Case 1: 1行JSON ---
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if line.startswith("{") and "recommended_duration" in line:
+                try:
+                    metadata = json.loads(line)
+                    lyrics_start = i + 1
+                    break
+                except json.JSONDecodeError:
+                    pass
+        
+        # --- Case 2: 複数行JSON（ローカルLLMが整形出力する場合） ---
+        # lyrics_start が 0 のままならテキスト全体から複数行JSONブロックを探す
+        if lyrics_start == 0:
+            full_text = response.strip()
+            json_match = re.search(
+                r'(\{[^{}]*"recommended_duration"[^{}]*\})',
+                full_text,
+                re.DOTALL,
+            )
+            if json_match:
+                try:
+                    metadata = json.loads(json_match.group(1))
+                    # JSONブロック終端以降を歌詞とする
+                    after_json = full_text[json_match.end():]
+                    lines = after_json.strip().split("\n")
+                    lyrics_start = 0
+                except json.JSONDecodeError:
+                    pass
+        
+        # 歌詞部分を抽出
+        lyrics = "\n".join(lines[lyrics_start:]).strip()
+        
+        # マークダウンコードブロック囲みを除去
+        if lyrics.startswith('```'):
+            lyrics = re.sub(r'^```[^\n]*\n?', '', lyrics)
+            lyrics = re.sub(r'\n?```\s*$', '', lyrics)
+            lyrics = lyrics.strip()
+        
+        # ローマ字行を自動除去（安全策）
+        lyrics = self._strip_romaji_lines(lyrics)
+        
+        # 歌詞構造バリデーション（instrumental タグ下の歌詞行を修正）
+        lyrics = self._fix_lyrics_structure(lyrics)
+        
+        return {
+            "lyrics": lyrics,
+            "recommended_duration": metadata.get("recommended_duration", 90),
+            "parts": metadata.get("parts", {})
+        }
+    
+    # ACE-Step 公式ドキュメント準拠:
+    #   instrumental タグ — これらの下に歌詞を置くとボーカルが生成されない
+    #   [Intro], [Outro] = 基本構造タグだが通常インスト
+    #   [Instrumental], [inst] = 純粋インスト指定
+    #   複合形: [Guitar Solo], [Piano Interlude], [Drum Break] 等
+    _INSTRUMENTAL_TAGS = {
+        "intro", "outro", "instrumental", "inst",
+        "guitar solo", "piano interlude", "drum break",
+        "interlude", "break", "solo",
+        "fade out", "silence",
+        "build", "drop", "breakdown",
+    }
+    # 歌詞を置ける vocal タグ
+    _VOCAL_TAGS = {"verse", "chorus", "pre-chorus", "bridge"}
+    _TAG_RE = re.compile(r'^\[([a-zA-Z][a-zA-Z0-9\- ]*)\]$')
+
+    @classmethod
+    def _fix_lyrics_structure(cls, lyrics: str) -> str:
+        """歌詞構造バリデーション
+        
+        instrumental タグ ([intro], [interlude], [outro] 等) の下に
+        歌詞行がある場合、vocal タグ ([verse]) に変更する。
+        ACE-Step は instrumental タグ下の歌詞をボーカルとして生成しない。
+        """
+        lines = lyrics.split('\n')
+        result: list[str] = []
+        current_tag = ''
+        fixes = 0
+
+        for line in lines:
+            stripped = line.strip()
+            m = cls._TAG_RE.match(stripped)
+            if m:
+                tag_name = m.group(1).strip().lower()
+                # 数字の接尾辞を除去して判定 (e.g. "verse 2" → "verse")
+                base_tag = re.sub(r'[\s\d]+$', '', tag_name)
+                current_tag = base_tag
+                result.append(line)
+                continue
+
+            # 空行はそのまま
+            if not stripped:
+                result.append(line)
+                continue
+
+            # instrumental タグ配下に歌詞行がある → [verse] に変更
+            if current_tag in cls._INSTRUMENTAL_TAGS:
+                logger.warning(
+                    '歌詞バリデーション: [%s] 配下に歌詞行 "%s" を検出 → [verse] に変更',
+                    current_tag, stripped[:30]
+                )
+                result.append('[verse]')
+                current_tag = 'verse'
+                fixes += 1
+                result.append(line)
+                continue
+
+            result.append(line)
+
+        if fixes:
+            logger.info('歌詞バリデーション: %d 箇所を自動修正しました', fixes)
+
+        return '\n'.join(result)
+
+    @staticmethod
+    def _strip_romaji_lines(lyrics: str) -> str:
+        """ローマ字併記行を除去
+        
+        LLMが指示に反してローマ字を付加するケースへの安全策:
+        - (Romaji text here) のような括弧付きローマ字行を除去
+        - 日本語行の末尾に付いた (romaji) も除去
+        """
+        cleaned_lines = []
+        for line in lyrics.split("\n"):
+            stripped = line.strip()
+            # 行全体が (ローマ字) のパターン — ASCII + スペースのみで構成
+            if re.match(r'^\([A-Za-z][A-Za-z\s,\.\-\'!?]+\)$', stripped):
+                continue
+            # 日本語行の末尾に (romaji) が付いている場合、括弧部分だけ除去
+            line = re.sub(r'\s*\([A-Za-z][A-Za-z\s,\.\-\'!?]{5,}\)\s*$', '', line)
+            cleaned_lines.append(line)
+        return "\n".join(cleaned_lines)
+    
+    async def generate_tags(
+        self,
+        lyrics: str = "",
+        theme: str = "",
+        language: str = "Japanese"
+    ) -> Dict[str, Any]:
+        """
+        歌詞/テーマからタグを生成
+        
+        Args:
+            lyrics: 歌詞
+            theme: テーマ
+            language: 言語
+        
+        Returns:
+            {
+                "genre": str,
+                "tags": str,
+                "bpm": int,
+                "key_scale": str
+            }
+        """
+        content = []
+        if theme:
+            content.append(f"Theme: {theme}")
+        if lyrics:
+            content.append(f"Lyrics:\n{lyrics[:1000]}")  # 長すぎる場合は切り詰め
+        content.append(f"Language: {language}")
+        
+        prompt = "\n\n".join(content) + "\n\nGenerate music tags in JSON format."
+        
+        response = await self.chat(
+            user_message=prompt,
+            system_prompt=TAGS_GENERATE_SYSTEM_PROMPT,
+            temperature=0.7
+        )
+        
+        return self._parse_tags_response(response)
+    
+    async def generate_caption(
+        self,
+        lyrics: str = "",
+        theme: str = "",
+        tags: str = "",
+        language: str = "Japanese",
+        thinking: bool = True,
+        mood: str = "",
+        vocal: str = ""
+    ) -> Dict[str, Any]:
+        """
+        歌詞/テーマ/タグからナラティブキャプションを生成
+        
+        Args:
+            lyrics: 歌詞
+            theme: テーマ
+            tags: 既存のタグ（ジャンル等）
+            language: 歌唱言語
+            thinking: True=簡潔（1-2文）/ False=詳細（3-5文、楽器まで記述）
+        
+        Returns:
+            {"caption": str}
+        """
+        content = []
+        if theme:
+            content.append(f"Theme/Concept: {theme}")
+        if tags:
+            content.append(f"Genre/Style: {tags}")
+        if mood:
+            content.append(f"Mood: {mood}")
+        if vocal:
+            content.append(f"Vocal type: {vocal}")
+        if lyrics:
+            # thinking=Falseのときは歌詞を多く参照させて詳細な楽器・雰囲気担当を指示する
+            max_lyrics = 800 if not thinking else 500
+            content.append(f"Lyrics (for mood/style reference):\n{lyrics[:max_lyrics]}")
+        content.append(f"Vocal language: {language}")
+        
+        # vocal/mood の強制挿入フレーズを事前に組み立てる
+        vocal_instruction = f' You MUST describe the vocal as "{vocal}".' if vocal else ""
+        mood_instruction = f' The mood MUST be "{mood}".' if mood else ""
+
+        if thinking:
+            # builtin=OFF + thinking=ON: 短いヒントだけで十分、ACE-Stepの内部思考が補完する
+            prompt = (
+                "\n\n".join(content) +
+                "\n\n---\n"
+                "Write ONE complete English prose sentence describing this music.\n"
+                "Follow this template exactly:\n"
+                "  \"A [genre/era] [song/track] with [mood/atmosphere] and [vocal description].\"\n\n"
+                f"IMPORTANT: Use the exact Mood and Vocal type listed above.{mood_instruction}{vocal_instruction}\n\n"
+                "GOOD: \"A dramatic anime opening song with an intense, emotionally charged atmosphere and a powerful male vocal.\"\n"
+                "GOOD: \"A nostalgic 1980s city-pop track with a warm, breezy mood and a smooth female vocal.\"\n"
+                "BAD:  \"Anime song, dramatic, energetic, emotional, opening theme, Japanese anime soundtrack.\"\n\n"
+                "Output ONLY the sentence. No commentary, no lists, no extra lines."
+            )
+            system_prompt = CAPTION_GENERATE_SYSTEM_PROMPT
+            max_tokens = 120
+        else:
+            # builtin=OFF + thinking=OFF: LLMが完全な制作指示書を生成する必要がある
+            prompt = (
+                "\n\n".join(content) +
+                "\n\n---\n"
+                "Write 3-5 complete English prose sentences as a detailed music production blueprint.\n"
+                "Cover ALL of the following in natural sentence form:\n"
+                "  1. Genre + era\n"
+                "  2. Mood / emotional atmosphere\n"
+                f"  3. 2-3 specific instruments and their playing style\n"
+                "  4. Rhythm / tempo character\n"
+                f"  5. Vocal type and delivery — MUST use the exact vocal type: \"{vocal if vocal else 'as appropriate'}\"\n\n"
+                f"IMPORTANT: Use the exact Mood and Vocal type listed above.{mood_instruction}{vocal_instruction}\n\n"
+                "GOOD EXAMPLE (with male vocal):\n"
+                "\"A 2000s J-Pop track with a nostalgic and bittersweet atmosphere. "
+                "Shimmering synth pads and clean piano chords establish a warm foundation, supported by a crisp "
+                "electronic drum beat with subtle snare snaps. "
+                "The lead vocal is a clear, earnest male voice with a smooth mid-range delivery.\"\n\n"
+                "BAD EXAMPLE (never do this):\n"
+                "\"Anime song, dramatic, energetic, emotional, opening theme, Japanese anime soundtrack.\"\n\n"
+                "Output ONLY the prose sentences. No lists, no bullet points, no commentary."
+            )
+            system_prompt = CAPTION_GENERATE_DETAILED_PROMPT
+            max_tokens = 350
+        
+        response = await self.chat(
+            user_message=prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=0.7
+        )
+        
+        cleaned = self._clean_caption(response)
+
+        # LLMがvocalを省略した場合は末尾に必ず付加する（ポストプロセス保証）
+        if vocal and vocal.lower() not in cleaned.lower():
+            cleaned = cleaned.rstrip('.') + f", with a {vocal}."
+
+        return {"caption": cleaned}
+    
+    def _clean_caption(self, response: str) -> str:
+        """キャプションレスポンスをクリーンアップ
+        
+        ACE-Step 1.5 の制約:
+        - テキストエンコーダ max_length=256 tokens
+        - Constrained decoder: caption < 512 tokens, バッククォート禁止
+        - キャプションは英語の自然文パラグラフが最適
+        - 改行は避ける（YAML値としてパースされる）
+        - ピリオドで終わるのが理想的
+        """
+        text = response.strip()
+        # コードフェンスを除去
+        text = re.sub(r'^```\w*\n?', '', text)
+        text = re.sub(r'\n?```$', '', text)
+        # Note: ... 行を除去
+        text = re.sub(r'\n*Note:.*$', '', text, flags=re.IGNORECASE | re.DOTALL)
+        # (Note: ...) を除去
+        text = re.sub(r'\s*\(Note:.*?\)', '', text, flags=re.IGNORECASE)
+        # Markdown太字を除去
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        # バッククォートを除去（ACE-Stepで禁止）
+        text = text.replace('`', '')
+        # 改行→スペース（YAML値内の改行はパース問題を起こす）
+        text = re.sub(r'[\n\r]+', ' ', text)
+        # 制御文字を除去（タブ含む）
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+        # 連続スペースを整理
+        text = re.sub(r'\s{2,}', ' ', text).strip()
+        # 480文字を超える場合は文の切れ目で切断（安全マージン）
+        if len(text) > 480:
+            # ピリオド+スペースまたは文末で切る
+            cut = text[:480].rfind('. ')
+            if cut > 200:
+                text = text[:cut + 1]
+            else:
+                text = text[:480].rstrip()
+                # 最後の不完全な単語を除去
+                last_space = text.rfind(' ')
+                if last_space > 200:
+                    text = text[:last_space]
+        # ピリオドで終わっていなければ付加
+        if text and not text.endswith('.'):
+            text = text.rstrip(',;:') + '.'
+        return text
+    
+    def _parse_tags_response(self, response: str) -> Dict[str, Any]:
+        """タグレスポンスをパース"""
+        # JSONを抽出
+        json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+        
+        if json_match:
+            try:
+                data = json.loads(json_match.group())
+                return {
+                    "genre": data.get("genre", "pop"),
+                    "tags": data.get("tags", ""),
+                    "bpm": data.get("bpm", 120),
+                    "key_scale": data.get("key_scale", "C major")
+                }
+            except json.JSONDecodeError:
+                pass
+        
+        # パース失敗時のデフォルト
+        return {
+            "genre": "pop",
+            "tags": "piano, emotional",
+            "bpm": 120,
+            "key_scale": "C major"
+        }
+
+    async def generate_theme(
+        self,
+        genre: str = "",
+        language: str = "Japanese"
+    ) -> str:
+        """
+        ジャンルと言語からLLMで曲のテーマ/シナリオを生成
+
+        Args:
+            genre: ジャンル
+            language: 言語
+
+        Returns:
+            テーマ文字列
+        """
+        import random
+
+        # ジャンル別コンテキスト（世界観、典型的テーマ、雰囲気を指示）
+        genre_context = {
+            "J-POP": {
+                "vibe": "Japanese everyday life, youth, seasons, personal growth",
+                "settings": ["school hallway after exams", "convenience store at midnight", "last train home",
+                             "apartment balcony in summer", "festival night", "graduation ceremony",
+                             "walking home in autumn leaves", "a text message left on read"],
+                "emotions": ["bittersweet youth", "quiet determination", "gentle heartbreak", "hopeful anxiety",
+                             "nostalgic warmth", "shy confession", "everyday gratitude"],
+            },
+            "Rock": {
+                "vibe": "rebellion, freedom, raw emotion, struggle, passion",
+                "settings": ["a highway with no destination", "a rooftop screaming into wind", "a stage on fire",
+                             "an abandoned factory", "a garage rehearsal", "the edge of a cliff",
+                             "smashing a mirror", "racing through tunnels at night"],
+                "emotions": ["burning rage", "desperate freedom", "defiant pride", "raw honesty",
+                             "wild abandon", "stubborn resistance", "furious hope"],
+            },
+            "Ballad": {
+                "vibe": "deep emotion, love, loss, memory, intimate confession",
+                "settings": ["an empty bench in a park", "a candle burning low", "old photographs",
+                             "a piano in an empty room", "a window seat on a rainy day",
+                             "a voicemail never deleted", "a faded love letter"],
+                "emotions": ["aching tenderness", "quiet devastation", "fragile hope", "deep longing",
+                             "gentle sorrow", "unconditional love", "peaceful acceptance"],
+            },
+            "Anime": {
+                "vibe": "epic adventure, friendship, transformation, destiny, battle",
+                "settings": ["a portal to another world", "the final boss arena", "a floating castle",
+                             "waking up with mysterious powers", "a school hiding a secret",
+                             "a sword glowing at dawn", "running toward the enemy line"],
+                "emotions": ["burning resolve", "unbreakable bond", "heroic sacrifice", "awakening power",
+                             "tearful farewell to a comrade", "overcoming impossible odds"],
+            },
+            "Hip Hop": {
+                "vibe": "street life, hustle, self-expression, social commentary, swagger",
+                "settings": ["a recording booth at 4am", "street corner cypher", "a penthouse view",
+                             "counting bills in a back room", "a crowd chanting your name",
+                             "a basketball court at dusk", "the neighborhood block party"],
+                "emotions": ["ruthless ambition", "hungry pride", "street wisdom", "cold confidence",
+                             "loyal defiance", "underdog fury", "triumphant return"],
+            },
+            "R&B": {
+                "vibe": "sensuality, smooth romance, late night vibes, intimacy",
+                "settings": ["silk sheets and dim lights", "a jazz bar after hours", "slow dancing in a penthouse",
+                             "a phone call at 2am", "candlelit dinner for two",
+                             "a luxury car ride through the city", "a private beach at sunset"],
+                "emotions": ["smoldering desire", "tender seduction", "velvet intimacy", "jealous passion",
+                             "sweet surrender", "confident allure", "heartbroken elegance"],
+            },
+            "Enka": {
+                "vibe": "Japanese traditional emotion, sake, journey, unrequited love, harbor towns, seasons",
+                "settings": ["a snowy northern port", "a sake bar in a back alley", "a ferry departing at dawn",
+                             "a hot spring town in winter", "a lantern-lit bridge at night",
+                             "a fishing village at dusk", "a temple bell at year's end"],
+                "emotions": ["deep endurance", "sake-soaked loneliness", "stoic devotion", "wind-swept longing",
+                             "dignified heartbreak", "autumn melancholy", "ocean-deep sorrow"],
+            },
+            "EDM": {
+                "vibe": "euphoria, festival energy, drop, rave, neon lights, unity",
+                "settings": ["a massive festival mainstage", "neon-lit warehouse rave", "sunrise after an all-night set",
+                             "hands in the air moment", "laser beams cutting through smoke",
+                             "a countdown to the drop", "dancing with 50,000 strangers"],
+                "emotions": ["pure euphoria", "electric connection", "unstoppable energy", "collective ecstasy",
+                             "adrenaline rush", "transcendent freedom", "pulsing anticipation"],
+            },
+            "Reggaeton": {
+                "vibe": "Latin party, dance floor, sensual movement, tropical heat, club energy",
+                "settings": ["a beach club at midnight", "a packed dance floor in San Juan", "a rooftop pool party",
+                             "a tropical night drive", "a carnival parade",
+                             "VIP section with champagne", "a summer block party"],
+                "emotions": ["fiery passion", "sultry confidence", "party fever", "seductive power",
+                             "tropical heat", "irresistible groove", "bold desire"],
+            },
+            "K-POP": {
+                "vibe": "polished perfection, youth culture, visual storytelling, empowerment, love concept",
+                "settings": ["a choreography practice room", "a neon-lit Seoul street", "a debut stage",
+                             "a fan meeting moment", "a music video set with concept art",
+                             "a school rooftop confession", "a trendy cafe date"],
+                "emotions": ["fierce confidence", "butterfly-stomach crush", "unstoppable charisma",
+                             "sweet obsession", "rebellious glamour", "playful flirtation", "heartbreak anthem"],
+            },
+            "Phonk": {
+                "vibe": "dark energy, drift culture, aggressive bass, Memphis underground, nighttime",
+                "settings": ["drifting through empty streets", "a neon-lit underground garage", "midnight highway race",
+                             "bass shaking a blacked-out car", "a dark alley with fog",
+                             "headlights cutting through mist", "a warehouse with subwoofers"],
+                "emotions": ["menacing energy", "cold dominance", "predator focus", "dark thrill",
+                             "adrenaline rage", "fearless aggression", "shadow confidence"],
+            },
+            "Chanson": {
+                "vibe": "Parisian romance, poetic storytelling, cafe culture, existential beauty, l'amour",
+                "settings": ["a rainy Parisian boulevard", "a candlelit cafe in Montmartre", "the Seine at twilight",
+                             "an accordion player on a bridge", "a vintage wine bar",
+                             "a love letter written in a brasserie", "a flower market in spring"],
+                "emotions": ["wistful romance", "philosophical melancholy", "passionate declaration",
+                             "elegant heartbreak", "bohemian freedom", "tender irony", "poetic devotion"],
+            },
+            "Folklore": {
+                "vibe": "Andean mountains, nature, spiritual journey, indigenous tradition, earth and sky",
+                "settings": ["a mountain path at sunrise", "a village festival with bonfires", "a condor soaring over peaks",
+                             "a weaving loom in an ancient home", "a river valley in the Andes",
+                             "a starlit altiplano", "a sacred lake reflecting the sky"],
+                "emotions": ["ancient reverence", "earthy serenity", "spiritual connection", "mountain solitude",
+                             "communal celebration", "wind-carried longing", "timeless peace"],
+            },
+            "Country": {
+                "vibe": "country, acoustic guitar, banjo, fiddle, steel guitar, Nashville, heartland, storytelling",
+                "settings": ["a front porch at sunset", "driving down a dirt road",
+                             "a barn dance under string lights", "a campfire by a river",
+                             "a small-town Friday night", "fields of wheat swaying in the wind"],
+                "emotions": ["honest nostalgia", "quiet gratitude", "dusty-road freedom",
+                             "homesick warmth", "simple joy", "heartland pride"],
+            },
+            "Jazz": {
+                "vibe": "improvisation, smoke-filled clubs, cool sophistication, swing, blue notes",
+                "settings": ["a smoky club at midnight", "a saxophone solo under a streetlamp",
+                             "a New Orleans funeral parade", "a whiskey glass on a grand piano",
+                             "a rainy night in Harlem", "backstage at a jazz festival"],
+                "emotions": ["cool melancholy", "effortless swagger", "blue-note sadness", "spontaneous joy",
+                             "late-night introspection", "sensual groove", "bittersweet improvisation"],
+            },
+            "Lo-Fi": {
+                "vibe": "chill study vibes, warm nostalgia, tape hiss, cozy solitude, rainy window",
+                "settings": ["a cluttered desk at 3am", "a rainy window with tea", "a vinyl record skipping",
+                             "a cozy blanket fort", "a bookshop on a quiet afternoon",
+                             "a train ride through countryside", "doodling in a notebook"],
+                "emotions": ["gentle melancholy", "cozy loneliness", "warm detachment", "sleepy contentment",
+                             "wistful daydream", "quiet focus", "hazy comfort"],
+            },
+            "City Pop": {
+                "vibe": "1980s urban Japan, neon nights, summer drives, sophisticated pop, AOR",
+                "settings": ["a skyline drive in a convertible", "a neon-lit Tokyo boulevard at night",
+                             "a beachside bar at sunset", "a rooftop pool in Roppongi",
+                             "shopping in Harajuku 1983", "a yacht party in the bay"],
+                "emotions": ["glamorous longing", "summer night freedom", "urban sophistication",
+                             "carefree joy", "retro romance", "breezy confidence", "disco-lit desire"],
+            },
+            "Electronic": {
+                "vibe": "electronic, synth-driven, dance, digital soundscapes, futuristic texture",
+                "settings": ["a pulsing dance floor under UV lights", "a dark warehouse with strobes",
+                             "a headphone journey through the cosmos", "a data stream visualized as light",
+                             "an empty parking garage with echoing bass", "a control room full of oscilloscopes"],
+                "emotions": ["electric anticipation", "mechanical euphoria", "digital melancholy",
+                             "hypnotic trance", "synthetic warmth", "cold precision", "pulsing desire"],
+            },
+            "Folk": {
+                "vibe": "acoustic, warm, storytelling, campfire, organic, community, earth",
+                "settings": ["a campfire under the stars", "a dusty road at harvest time",
+                             "a porch with a rocking chair", "a river winding through a valley",
+                             "a folk festival in a meadow", "a farmhouse kitchen at dawn"],
+                "emotions": ["earthy warmth", "wanderlust", "homesick longing", "simple joy",
+                             "communal spirit", "weathered resilience", "open-road freedom"],
+            },
+            "70s Kayokyoku": {
+                "vibe": "1970s Japanese Kayokyoku, retro, nostalgic, analog, dramatic vocal, orchestral arrangement, Showa era",
+                "settings": ["a vinyl record spinning in a dim room", "a neon-lit Ginza cabaret",
+                             "a steam locomotive departing at night", "a phone booth on a rainy street",
+                             "a harbor town with fishing boats", "a dance hall with a mirror ball"],
+                "emotions": ["dramatic longing", "Showa-era melancholy", "forbidden love",
+                             "glamorous sadness", "passionate farewell", "smoky sentimentality"],
+            },
+            "80s Folk": {
+                "vibe": "1980s Japanese folk pop, acoustic guitar, singer-songwriter, poetic, campus life, youth",
+                "settings": ["a university campus in autumn", "a folk bar with dim candles",
+                             "walking along train tracks after school", "a rooftop with a guitar at dusk",
+                             "a used bookstore in Shimokitazawa", "a coffee shop with handwritten menus"],
+                "emotions": ["gentle introspection", "quiet determination", "youthful idealism",
+                             "bittersweet first love", "poetic solitude", "warm friendship"],
+            },
+            "90s J-POP": {
+                "vibe": "1990s J-POP, bright, emotional, catchy melody, band sound, Japanese pop golden era, Shibuya-kei",
+                "settings": ["a karaoke box with friends", "a school rooftop at lunch break",
+                             "a trendy Shibuya street in 1995", "a summer beach trip with the gang",
+                             "a live house basement gig", "a purikura booth"],
+                "emotions": ["youthful excitement", "carefree summer", "dramatic heartbreak",
+                             "energetic optimism", "tearful graduation", "innocent first crush"],
+            },
+            "New Music": {
+                "vibe": "Japanese New Music, singer-songwriter, poetic, mellow, 1970s-1980s acoustic pop, literary",
+                "settings": ["a quiet coffee shop on a rainy afternoon", "a seaside town in winter",
+                             "a window seat writing in a journal", "an evening walk through a residential street",
+                             "a bookshelf filled with poetry", "a midnight kitchen with warm milk"],
+                "emotions": ["philosophical calm", "quiet yearning", "literary melancholy",
+                             "gentle wisdom", "introspective peace", "understated passion"],
+            },
+            "Vocaloid": {
+                "vibe": "Vocaloid, synthetic voice, electronic, fast tempo, digital, futuristic, internet culture",
+                "settings": ["a neon cyber city at midnight", "inside a computer simulation",
+                             "a virtual concert with holographic crowd", "a glitching digital world",
+                             "a pixelated dream sequence", "racing through fiber optic cables"],
+                "emotions": ["hyperactive excitement", "digital heartbreak", "chaotic joy",
+                             "existential glitch", "manic determination", "pixelated tears", "electric rebellion"],
+            },
+            "Children's Song": {
+                "vibe": "Japanese children's song, gentle, simple, warm, nursery rhyme, innocent, playful",
+                "settings": ["a kindergarten playground in spring", "chasing butterflies in a flower field",
+                             "a sunny day with fluffy clouds", "splashing in puddles after rain",
+                             "counting stars with grandma", "a picnic under a big tree"],
+                "emotions": ["innocent wonder", "pure happiness", "playful curiosity",
+                             "warm security", "giggly excitement", "sleepy contentment"],
+            },
+            "Min'yo": {
+                "vibe": "Japanese Min'yo folk song, traditional, regional, shakuhachi, taiko, pentatonic scale, harvest, festival",
+                "settings": ["a village festival with lanterns", "rice paddies at harvest time",
+                             "a mountain path with morning mist", "a fishing boat heading out at dawn",
+                             "a Bon Odori dance circle", "a temple courtyard in autumn"],
+                "emotions": ["communal spirit", "ancestral pride", "seasonal gratitude",
+                             "earthy reverence", "festive energy", "ocean-deep patience"],
+            },
+            "Trance": {
+                "vibe": "trance, uplifting synth, euphoric, ethereal, driving beat, 138 BPM, soaring melody",
+                "settings": ["a massive festival stage at night", "lasers cutting through fog on a dance floor",
+                             "flying above neon-lit clouds", "a sunrise over an endless ocean",
+                             "stars spiraling in a planetarium", "a rooftop rave above the city skyline"],
+                "emotions": ["pure euphoria", "transcendent bliss", "weightless ascent",
+                             "cosmic unity", "radiant energy", "infinite horizon"],
+            },
+            "Mood": {
+                "vibe": "mood lounge, smooth jazz, saxophone, romantic, late night, sophisticated, cocktail",
+                "settings": ["a dimly lit jazz lounge", "a penthouse with city lights below",
+                             "slow dancing in an empty ballroom", "a cocktail bar at closing time",
+                             "a vinyl record playing in a candlelit room", "a luxury hotel lobby at midnight"],
+                "emotions": ["sensual sophistication", "velvet intimacy", "smoky allure",
+                             "elegant loneliness", "romantic suspense", "bittersweet luxury"],
+            },
+            "Driving": {
+                "vibe": "refreshing drive, breezy, bright guitar, sunny, coastal, open road, uplifting",
+                "settings": ["cruising along a sunlit coastal road", "gentle curves through rolling green hills",
+                             "a seaside highway with ocean sparkling beside you", "an open-top car through lavender fields",
+                             "a country road lined with swaying trees", "a bridge over a calm river at golden hour"],
+                "emotions": ["carefree bliss", "sun-kissed freedom", "refreshing breeze",
+                             "gentle exhilaration", "warm wanderlust", "effortless joy"],
+            },
+            "Acoustic Pop": {
+                "vibe": "acoustic pop, fingerpicking guitar, gentle vocals, intimate, warm, cafe, singer-songwriter",
+                "settings": ["a sunny cafe terrace", "an open mic night at a cozy bar",
+                             "a park bench with a guitar case", "a kitchen table recording session",
+                             "morning light through linen curtains", "a bookshop corner with soft music"],
+                "emotions": ["warm sincerity", "quiet contentment", "gentle affection",
+                             "unfiltered honesty", "breezy optimism", "tender simplicity"],
+            },
+            "Bossa Nova": {
+                "vibe": "Bossa nova, Brazilian jazz, gentle nylon guitar, soft percussion, cafe, Rio de Janeiro, warm breeze",
+                "settings": ["a beachside cafe in Ipanema", "a hammock on a Brazilian terrace",
+                             "a sunset stroll on Copacabana", "a candlelit bar in a Rio side street",
+                             "a lazy Sunday with fresh coffee", "waves lapping at a wooden pier"],
+                "emotions": ["warm relaxation", "sun-kissed contentment", "gentle saudade",
+                             "breezy romance", "effortless cool", "tropical daydream"],
+            },
+        }
+
+        # ジャンル名の正規化（部分一致でコンテキスト取得）
+        genre_key = genre or "J-POP"
+        ctx = genre_context.get(genre_key)
+        if not ctx:
+            # 部分一致を試す
+            genre_lower = genre_key.lower()
+            for k, v in genre_context.items():
+                if k.lower() in genre_lower or genre_lower in k.lower():
+                    ctx = v
+                    break
+        if not ctx:
+            # デフォルトコンテキスト
+            ctx = {
+                "vibe": "emotional, personal, vivid imagery",
+                "settings": ["a quiet room", "a busy street", "a window at night",
+                             "a journey by train", "a secret place", "a moment of change"],
+                "emotions": ["quiet hope", "gentle sorrow", "wild joy", "subtle fear",
+                             "warm gratitude", "restless desire"],
+            }
+
+        setting = random.choice(ctx["settings"])
+        emotion = random.choice(ctx["emotions"])
+
+        # 汎用の切り口プールも残す（ただしジャンルの雰囲気と組み合わせる）
+        angles_pool = [
+            "as a first-person confession", "as a letter never sent",
+            "as one vivid scene frozen in time", "as a conversation between strangers",
+            "as a dream that feels real", "from the perspective of an observer",
+            "as the last moment before everything changes", "as a memory resurfacing",
+            "through the eyes of someone leaving", "as a promise whispered",
+            "as a single unforgettable image", "as a question with no answer",
+        ]
+        angle = random.choice(angles_pool)
+
+        system_prompt = f"""You are a music theme generator specialized in {genre_key} music.
+Generate a single short, vivid song theme/scenario (3-10 words MAX) that perfectly fits the {genre_key} genre.
+Output ONLY the theme text. No quotes, no explanation.
+Do NOT add romanization, pronunciation, or translations in parentheses.
+
+GENRE ESSENCE: {ctx['vibe']}
+
+STRICT RULES:
+- The theme MUST feel natural for a {genre_key} song — imagine it as a real song title or concept
+- NEVER use these overused words: rain, sunset, cherry blossoms, merry-go-round, twilight, starlight, moonlight, silhouette, horizon, forgotten, nostalgia, 雨上がり, 茜色, 忘れられた, メリーゴーランド, 夕焼け, シルエット
+- Be SPECIFIC and CONCRETE — use unexpected nouns, places, objects
+- Keep it SHORT: 3-10 words maximum
+- It should feel like a real {genre_key} song title or concept"""
+
+        lang_instruction = f"Write the theme in {language}." if language != "English" else ""
+        user_message = f"""Genre: {genre_key}
+Scene inspiration: {setting}
+Emotional tone: {emotion}
+Creative approach: {angle}
+{lang_instruction}
+
+Generate one original {genre_key} song theme:""".strip()
+
+        try:
+            response = await self.chat(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                max_tokens=60,
+                temperature=1.2
+            )
+            # 余分なクォートや改行を除去
+            theme = response.strip().strip('"').strip("'").strip()
+            # 複数行が返った場合は最初の行だけ
+            if '\n' in theme:
+                theme = theme.split('\n')[0].strip()
+            # 括弧内のローマ字/翻訳を除去
+            import re
+            theme = re.sub(r'\s*[\(（].*?[\)）]\s*$', '', theme).strip()
+            # 長すぎる場合は句読点で切る
+            if len(theme) > 30:
+                for sep in ['、', '。', '，', ', ', '. ']:
+                    if sep in theme[:30]:
+                        theme = theme[:theme.index(sep, 0, 30)].strip()
+                        break
+            return theme
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Theme generation failed: {e}")
+            return genre or "music"
+
+    async def generate_title(
+        self,
+        lyrics: str,
+        genre: str = "",
+        language: str = "Japanese",
+        theme: str = ""
+    ) -> str:
+        """
+        歌詞の雰囲気から曲名を生成
+
+        Args:
+            lyrics: 歌詞テキスト
+            genre: ジャンル
+            language: 言語
+            theme: テーマ（参考情報）
+
+        Returns:
+            曲名文字列
+        """
+        # 歌詞を切り詰め（トークン節約）
+        lyrics_snippet = lyrics[:600] if lyrics else ""
+
+        parts = []
+        if genre:
+            parts.append(f"Genre: {genre}")
+        if theme:
+            parts.append(f"Theme: {theme}")
+        parts.append(f"Language: {language}")
+        parts.append(f"Lyrics:\n{lyrics_snippet}")
+
+        prompt = "\n".join(parts) + "\n\nGenerate a song title."
+
+        system = (
+            "You are a professional songwriter who creates evocative song titles.\n"
+            "Given the lyrics, genre, and language, output a single song title that captures the mood and essence of the lyrics.\n\n"
+            "RULES:\n"
+            "1. Output ONLY the title — no quotes, no explanation, no numbering, no alternatives\n"
+            "2. The title language should match the lyrics language\n"
+            "3. Keep it short: 1-6 words (Japanese: 2-12 characters)\n"
+            "4. Make it poetic and memorable — evoke imagery or emotion\n"
+            "5. Do NOT use generic titles like \"Song\" or \"Untitled\"\n"
+            "6. If lyrics are in Japanese, output Japanese title. If English, output English title.\n"
+        )
+
+        try:
+            response = await self.chat(
+                user_message=prompt,
+                system_prompt=system,
+                temperature=0.9
+            )
+            # クリーンアップ: 引用符や余計な記号を除去
+            title = response.strip().strip('"\'\'\u201c\u201d\u300c\u300d').strip()
+            # 複数行の場合は1行目だけ
+            if "\n" in title:
+                title = title.split("\n")[0].strip()
+            # 長すぎる場合はカット
+            if len(title) > 50:
+                title = title[:50]
+            return title or (theme or genre or "Untitled")
+        except Exception as e:
+            logger.warning("Title generation failed: %s", e)
+            return theme or genre or "Untitled"
+
+    # 有効な viz mood ID のセット
+    _VIZ_MOOD_IDS = {
+        "energetic", "melancholic", "healing", "epic", "cyber",
+        "romantic", "dark", "festive", "nostalgic", "mystical",
+    }
+
+    # ジャンル → デフォルト mood_id（LLM 失敗時フォールバック）
+    _GENRE_DEFAULT_MOOD: Dict[str, str] = {
+        "J-POP": "energetic", "Rock": "epic", "Ballad": "melancholic",
+        "Jazz": "nostalgic", "Electronic": "cyber", "R&B": "romantic",
+        "Hip-Hop": "dark", "Classical": "mystical", "Folk": "nostalgic",
+        "Anime Song": "epic", "Vocaloid": "cyber", "Enka": "melancholic",
+        "Lo-Fi": "healing", "Healing": "healing", "Piano Healing": "healing",
+        "City Pop": "nostalgic", "Bossa Nova": "healing", "Trance": "cyber",
+        "Mood": "romantic", "Driving": "energetic", "Country": "nostalgic",
+        "Reggae": "festive", "Gospel": "epic", "Reggaeton": "festive",
+        "K-POP": "energetic", "Phonk": "dark", "Chanson": "romantic",
+        "Folklore": "mystical", "Acoustic Pop": "healing",
+        "Children's Song": "festive", "Min'yo": "mystical",
+        "70s Kayokyoku": "nostalgic", "80s Folk": "nostalgic",
+        "90s J-POP": "energetic", "New Music": "nostalgic",
+    }
+
+    async def generate_viz_mood(
+        self,
+        lyrics: str = "",
+        caption: str = "",
+        genre: str = "",
+        omakase_query: str = "",
+    ) -> str:
+        """
+        歌詞・キャプション・ジャンルからビジュアライザー用の雰囲気IDを推定。
+
+        Returns:
+            10種の mood_id のいずれか
+        """
+        # 入力が何もなければジャンルデフォルト
+        if not lyrics and not caption and not omakase_query:
+            return self._GENRE_DEFAULT_MOOD.get(genre, "energetic")
+
+        parts = []
+        if genre:
+            parts.append(f"Genre: {genre}")
+        if omakase_query:
+            parts.append(f"User request: {omakase_query}")
+        if caption:
+            parts.append(f"Caption: {caption[:300]}")
+        if lyrics:
+            parts.append(f"Lyrics:\n{lyrics[:400]}")
+
+        prompt = "\n".join(parts) + "\n\nClassify the mood of this song."
+
+        system = (
+            "You classify songs into exactly one visual mood category for a music visualizer.\n"
+            "VALID CATEGORIES (output ONLY one of these words, nothing else):\n"
+            "  energetic    — upbeat, bouncy, high energy, dance, fun pop\n"
+            "  melancholic  — sad, bittersweet, longing, tears, heartbreak\n"
+            "  healing      — calm, gentle, soothing, relaxing, peaceful, lo-fi\n"
+            "  epic         — grand, dramatic, powerful, cinematic, heroic\n"
+            "  cyber        — electronic, digital, futuristic, synth, vocaloid, cyberpunk\n"
+            "  romantic     — love, tender, sweet, warm, intimate\n"
+            "  dark         — ominous, aggressive, gritty, intense, gothic\n"
+            "  festive      — party, celebration, carnival, joyful, cheerful\n"
+            "  nostalgic    — retro, memories, wistful, old times, sepia-tone\n"
+            "  mystical     — mysterious, ethereal, fantasy, spiritual, otherworldly\n\n"
+            "Output ONLY the single category word. No explanation."
+        )
+
+        try:
+            response = await self.chat(
+                user_message=prompt,
+                system_prompt=system,
+                temperature=0.3,
+            )
+            mood = response.strip().lower().split()[0] if response.strip() else ""
+            # 余計な句読点を除去
+            mood = re.sub(r'[^a-z]', '', mood)
+            if mood in self._VIZ_MOOD_IDS:
+                return mood
+            # LLM出力が有効でなければジャンルデフォルト
+            logger.info("viz_mood LLM returned '%s', falling back to genre default", mood)
+            return self._GENRE_DEFAULT_MOOD.get(genre, "energetic")
+        except Exception as e:
+            logger.warning("viz_mood generation failed: %s", e)
+            return self._GENRE_DEFAULT_MOOD.get(genre, "energetic")
+
+    async def generate_full(
+        self,
+        theme: str,
+        genre: str = "",
+        language: str = "Japanese",
+        mood: str = ""
+    ) -> Dict[str, Any]:
+        """
+        歌詞とタグを一括生成
+        
+        Args:
+            theme: テーマ
+            genre: ジャンル
+            language: 言語
+            mood: ムード
+        
+        Returns:
+            歌詞とタグの両方を含む辞書
+        """
+        # 歌詞生成
+        lyrics_result = await self.generate_lyrics(
+            theme=theme,
+            genre=genre,
+            language=language,
+            mood=mood
+        )
+        
+        # タグ生成
+        tags_result = await self.generate_tags(
+            lyrics=lyrics_result["lyrics"],
+            theme=theme,
+            language=language
+        )
+        
+        return {
+            **lyrics_result,
+            **tags_result
+        }
+
+
+# シングルトンインスタンス
+llm_service = LLMService()

@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+models/*.gguf
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/
+*.log
+generated_backgrounds/
+
+# docs — 非公開
+docs/soften_tone.py
+docs/soften_tone_pass2.py
+docs/acestep_cpp_research.md
+docs/book/
+docs/非公開ファイルメモ.md
+
+# サーバ版 — 非公開
+main_server.py
+start_server.sh

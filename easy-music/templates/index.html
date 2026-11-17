@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy Music — AI音楽生成</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="/static/style.css?v=20260325a">
+</head>
+<body>
+    <div class="app-playback-bg" id="app-playback-bg"></div>
+    <div class="simple-container">
+        <!-- ヘッダー -->
+        <header class="simple-header">
+            <div class="header-left">
+                <h1>🎵 Easy Music</h1>
+            </div>
+            <div class="header-buttons">
+                <button class="mode-toggle-btn" id="cover-toggle-btn" onclick="toggleCoverMode()" title="Cover">🎤 <span data-i18n="btn_cover_mode">カバー</span></button>
+                <button class="mode-toggle-btn" id="repaint-toggle-btn" onclick="toggleRepaintMode()" title="Repaint">🎨 <span data-i18n="btn_repaint_mode">リペイント</span></button>
+                <button class="jukebox-toggle-btn" id="jukebox-toggle-btn" onclick="toggleJukeboxMode()" title="JUKEBOX">🎶 自動演奏</button>
+                <button class="lang-toggle-btn" id="lang-toggle-btn" onclick="toggleUILang()" title="日本語 / English">🌐 EN</button>
+            </div>
+        </header>
+
+        <!-- JUKEBOX: 選択カテゴリ表示 -->
+        <section class="simple-section jukebox-section">
+            <label class="section-label" data-i18n="jukebox_selected_label">🎶 JUKEBOX — 選択中のジャンル</label>
+            <div class="jukebox-selected-categories" id="jukebox-selected-categories" data-placeholder=""></div>
+        </section>
+
+        <!-- ジャンル選択タイル -->
+        <section class="simple-section">
+            <label class="section-label" id="genre-section-label" data-i18n="label_genre">ジャンル</label>
+            <div class="genre-grid" id="genre-grid">
+                <!-- 洋楽メジャー -->
+                <button class="genre-tile" data-genre="J-POP" data-caption-hint="J-POP, Japanese pop, catchy melody, bright, emotional vocal, polished production">
+                    <img class="genre-img" src="/static/image/J-pop.png" alt="J-POP"><span class="genre-label">J-POP</span>
+                </button>
+                <button class="genre-tile" data-genre="Rock" data-caption-hint="Rock, guitar-driven, energetic, powerful">
+                    <img class="genre-img" src="/static/image/Rock.png" alt="Rock"><span class="genre-label">Rock</span>
+                </button>
+                <button class="genre-tile" data-genre="Jazz" data-caption-hint="Jazz, smooth, improvisational, sophisticated">
+                    <img class="genre-img" src="/static/image/jazz.png" alt="Jazz"><span class="genre-label">Jazz</span>
+                </button>
+                <button class="genre-tile" data-genre="Electronic" data-caption-hint="Electronic, synth, dance, digital">
+                    <img class="genre-img" src="/static/image/Electoric.png" alt="Electronic"><span class="genre-label">Electronic</span>
+                </button>
+                <button class="genre-tile" data-genre="R&B" data-caption-hint="R&B, soulful, smooth, groove">
+                    <img class="genre-img" src="/static/image/R%26D.png" alt="R&B"><span class="genre-label">R&B</span>
+                </button>
+                <button class="genre-tile" data-genre="Hip-Hop" data-caption-hint="Hip-Hop, rhythmic, rap, beats">
+                    <img class="genre-img" src="/static/image/Hip-Hop.png" alt="Hip-Hop"><span class="genre-label">Hip-Hop</span>
+                </button>
+                <button class="genre-tile" data-genre="Country" data-caption-hint="Country music, acoustic guitar, banjo, fiddle, steel guitar, warm storytelling vocals, heartfelt and honest, Nashville sound">
+                    <img class="genre-img" src="/static/image/Country.png" alt="Country"><span class="genre-label">Country</span>
+                </button>
+                <button class="genre-tile" data-genre="Folk" data-caption-hint="Folk, acoustic, warm, storytelling">
+                    <img class="genre-img" src="/static/image/Folk.png" alt="Folk"><span class="genre-label">Folk</span>
+                </button>
+                <!-- 年代系 -->
+                <button class="genre-tile" data-genre="70s Kayokyoku" data-caption-hint="1970s Japanese Kayokyoku, retro, nostalgic, analog, dramatic vocal, orchestral arrangement">
+                    <img class="genre-img" src="/static/image/70%E5%B9%B4%E4%BB%A3%E6%AD%8C%E8%AC%A1%E6%9B%B2.png" alt="70年代歌謡曲"><span class="genre-label" data-i18n="genre_70s">70年代歌謡曲</span>
+                </button>
+                <button class="genre-tile" data-genre="80s Folk" data-caption-hint="1980s Japanese folk pop, acoustic guitar, warm analog recording, singer-songwriter, poetic, nostalgic">
+                    <img class="genre-img" src="/static/image/80%E5%B9%B4%E4%BB%A3%E3%83%95%E3%82%A9%E3%83%BC%E3%82%AF.png" alt="80年代フォーク"><span class="genre-label" data-i18n="genre_80s">80年代フォーク</span>
+                </button>
+                <button class="genre-tile" data-genre="90s J-POP" data-caption-hint="1990s J-POP, bright, emotional, catchy melody, band sound, Japanese pop golden era">
+                    <img class="genre-img" src="/static/image/90%E5%B9%B4%E4%BB%A3J-POP.png" alt="90年代J-POP"><span class="genre-label" data-i18n="genre_90s">90年代J-POP</span>
+                </button>
+                <button class="genre-tile" data-genre="New Music" data-caption-hint="Japanese New Music, singer-songwriter, poetic, mellow, 1970s-1980s acoustic pop">
+                    <img class="genre-img" src="/static/image/%E3%83%A6%E3%83%BC%E3%83%9F%E3%83%A5%E3%83%BC%E3%82%B8%E3%83%83%E3%82%AF.png" alt="ニューミュージック"><span class="genre-label" data-i18n="genre_newmusic">ニューミュージック</span>
+                </button>
+                <!-- 日本特化 -->
+                <button class="genre-tile" data-genre="Vocaloid" data-caption-hint="Vocaloid, synthetic voice, electronic, fast tempo, digital, futuristic Japanese pop">
+                    <img class="genre-img" src="/static/image/%E3%83%9C%E3%82%AB%E3%83%AD.png" alt="ボカロ"><span class="genre-label" data-i18n="genre_vocaloid">ボカロ</span>
+                </button>
+                <button class="genre-tile" data-genre="Anime Song" data-caption-hint="Anime song, dramatic, energetic, emotional, opening theme, Japanese anime soundtrack">
+                    <img class="genre-img" src="/static/image/%E3%82%A2%E3%83%8B%E3%82%BD%E3%83%B3.png" alt="アニソン"><span class="genre-label" data-i18n="genre_anison">アニソン</span>
+                </button>
+                <button class="genre-tile" data-genre="Children's Song" data-caption-hint="Japanese children's song, gentle, simple, warm, nursery rhyme, innocent, acoustic">
+                    <img class="genre-img" src="/static/image/%E7%AB%A5%E8%AC%A1.png" alt="童謡"><span class="genre-label" data-i18n="genre_douyou">童謡</span>
+                </button>
+                <button class="genre-tile" data-genre="Enka" data-caption-hint="Enka, traditional Japanese ballad, melancholic, vibrato, emotional, shamisen, koto">
+                    <img class="genre-img" src="/static/image/%E6%BC%94%E6%AD%8C.png" alt="演歌"><span class="genre-label" data-i18n="genre_enka">演歌</span>
+                </button>
+                <button class="genre-tile" data-genre="Min'yo" data-caption-hint="Japanese Min'yo folk song, traditional, regional, shakuhachi, taiko, pentatonic scale">
+                    <img class="genre-img" src="/static/image/%E6%B0%91%E8%AC%A1.png" alt="民謡"><span class="genre-label" data-i18n="genre_minyo">民謡</span>
+                </button>
+                <!-- ムード系 -->
+                <button class="genre-tile" data-genre="Trance" data-caption-hint="Trance, purely instrumental, uplifting synth pads, euphoric build-ups and breakdowns, driving bassline, arpeggiated leads, 138 BPM, ethereal atmosphere, soaring melodies, no vocals" data-force-inst="true">
+                    <img class="genre-img" src="/static/image/Trance.png" alt="Trance"><span class="genre-label">Trance</span>
+                </button>
+                <button class="genre-tile" data-genre="Mood" data-caption-hint="Mood lounge music, purely instrumental, smooth jazz with mellow saxophone, warm electric piano chords, subtle brushed drums and walking bass, romantic and sophisticated, late night ambiance, medium slow tempo, polished production, no vocals" data-force-inst="true">
+                    <img class="genre-img" src="/static/image/%E3%83%A0%E3%83%BC%E3%83%89.png" alt="ムード"><span class="genre-label" data-i18n="genre_mood">ムード</span>
+                </button>
+                <button class="genre-tile" data-genre="Driving" data-caption-hint="Refreshing driving music, purely instrumental, bright acoustic guitar and clean electric guitar, light upbeat drums, moderate tempo around 110 BPM, warm bass, breezy and uplifting, coastal highway sunshine, open windows breeze, no vocals" data-force-inst="true">
+                    <img class="genre-img" src="/static/image/%E3%83%89%E3%83%A9%E3%82%A4%E3%83%93%E3%83%B3%E3%82%B0.png" alt="ドライビング"><span class="genre-label" data-i18n="genre_driving">ドライビング</span>
+                </button>
+                <button class="genre-tile" data-genre="Acoustic Pop" data-caption-hint="Acoustic pop, warm fingerpicking acoustic guitar, gentle vocals, light percussion, simple and intimate arrangement, cafe atmosphere, singer-songwriter style">
+                    <img class="genre-img" src="/static/image/Acoustic%20Pop.png" alt="Acoustic Pop"><span class="genre-label">Acoustic Pop</span>
+                </button>
+                <button class="genre-tile" data-genre="Bossa Nova" data-caption-hint="Bossa nova, Brazilian jazz, gentle acoustic guitar, soft percussion, warm, relaxed, cafe, sophisticated rhythm">
+                    <img class="genre-img" src="/static/image/%E3%83%9C%E3%82%B5%E3%83%8E%E3%83%90.png" alt="ボサノバ"><span class="genre-label" data-i18n="genre_bossanova">ボサノバ</span>
+                </button>
+                <button class="genre-tile" data-genre="Lo-Fi" data-caption-hint="Lo-fi hip hop, chill beats, vinyl crackle, mellow piano, warm bass, relaxing, study music, nostalgic, tape saturation">
+                    <img class="genre-img" src="/static/image/Lo-Fi.png" alt="Lo-Fi"><span class="genre-label">Lo-Fi</span>
+                </button>
+                <button class="genre-tile" data-genre="City Pop" data-caption-hint="City pop, 1980s Japanese pop, funky bass, bright synth, groovy, urban, polished production, AOR influence, summer night">
+                    <img class="genre-img" src="/static/image/%E3%82%B7%E3%83%86%E3%82%A3%E3%83%9D%E3%83%83%E3%83%97.png" alt="シティポップ"><span class="genre-label" data-i18n="genre_citypop">シティポップ</span>
+                </button>
+                <!-- ワールド系 -->
+                <button class="genre-tile" data-genre="Chanson" data-caption-hint="French chanson, romantic, accordion musette, gentle acoustic guitar, expressive vocal with vibrato, Parisian cafe atmosphere, poetic lyrics, warm and intimate, waltz rhythm, nostalgic European charm">
+                    <img class="genre-img" src="/static/image/%E3%82%B7%E3%83%A3%E3%83%B3%E3%82%BD%E3%83%B3.png" alt="シャンソン"><span class="genre-label" data-i18n="genre_chanson">シャンソン</span>
+                </button>
+                <button class="genre-tile" data-genre="Folklore" data-caption-hint="South American folklore, purely instrumental, Andean folk music, charango and quena flute melody, bombo drum and cajón percussion, warm acoustic guitar arpeggios, pentatonic scale, earthy and spiritual atmosphere, indigenous rhythm, no vocals" data-force-inst="true">
+                    <img class="genre-img" src="/static/image/%E3%83%95%E3%82%A9%E3%83%AB%E3%82%AF%E3%83%AD%E3%83%BC%E3%83%AC.png" alt="フォルクローレ"><span class="genre-label" data-i18n="genre_folklore">フォルクローレ</span>
+                </button>
+                <!-- ダンス・トレンド系 -->
+                <button class="genre-tile" data-genre="Reggaeton" data-caption-hint="Reggaeton, Latin urban dance, dembow rhythm, heavy 808 bass, snappy snare, reggaeton beat pattern, Spanish vocal style, party atmosphere, catchy hook, tropical club energy">
+                    <img class="genre-img" src="/static/image/Reggaeton.png" alt="Reggaeton"><span class="genre-label" data-i18n="genre_reggaeton">レゲトン</span>
+                </button>
+                <button class="genre-tile" data-genre="K-POP" data-caption-hint="K-POP, Korean pop, polished production, catchy hook, tight choreography beat, synth layers, powerful vocal, rap verse, dynamic arrangement, bright and energetic, modern dance pop">
+                    <img class="genre-img" src="/static/image/K-POP.png" alt="K-POP"><span class="genre-label">K-POP</span>
+                </button>
+                <button class="genre-tile" data-genre="Phonk" data-caption-hint="Phonk, Memphis rap influenced, dark cowbell pattern, distorted 808 bass, aggressive hi-hats, chopped vocal samples, drift car culture, hard-hitting drums, lo-fi gritty texture, high energy">
+                    <img class="genre-img" src="/static/image/Phonk.png" alt="Phonk"><span class="genre-label">Phonk</span>
+                </button>
+                <button class="genre-tile" data-genre="EDM" data-caption-hint="EDM, electronic dance music, massive synth drop, four-on-the-floor kick, sidechain compression, build-up and breakdown, festival anthem, euphoric lead synth, heavy sub bass, high energy crowd atmosphere">
+                    <img class="genre-img" src="/static/image/EDM.png" alt="EDM"><span class="genre-label">EDM</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ジャンルミックス（通常モードでジャンル選択時に表示） -->
+        <div class="genre-blend-row normal-mode-section" id="genre-blend-row">
+            <span class="blend-label" data-i18n="label_blend">➕ ミックス：</span>
+            <select class="simple-select blend-select" id="blend-genre-select" onchange="setBlendGenre(this)">
+                <option value="" data-i18n="blend_none">（なし）</option>
+            </select>
+        </div>
+
+        <!-- ===== カバーモード パネル ===== -->
+        <section class="simple-section cover-mode-section" id="cover-panel">
+            <label class="section-label" data-i18n="label_cover_title">🎤 カバーモード — 音声ファイルのスタイルを変換</label>
+            <div class="upload-area" id="cover-upload-area">
+                <input type="file" id="cover-file-input" accept="audio/*" class="file-input-hidden">
+                <div class="upload-placeholder" id="cover-upload-placeholder" data-i18n="label_upload_audio">🎵 音声ファイルをドラッグ＆ドロップ、またはクリックして選択</div>
+                <div class="upload-file-info" id="cover-file-info" style="display:none">
+                    <span id="cover-file-name"></span>
+                    <button class="upload-clear-btn" onclick="clearCoverFile()">✕</button>
+                </div>
+            </div>
+            <div class="cover-controls">
+                <div class="control-item">
+                    <label data-i18n="label_cover_strength">カバー強度</label>
+                    <div class="slider-row">
+                        <input type="range" id="cover-strength" class="cover-slider" min="0" max="100" value="80">
+                        <span class="slider-value" id="cover-strength-value">0.80</span>
+                    </div>
+                    <div class="slider-hint" data-i18n="hint_cover_strength">低い値=原曲に忠実 / 高い値=大きく変換</div>
+                </div>
+            </div>
+            <div class="cover-caption-row">
+                <input type="text" id="cover-caption" class="simple-input"
+                       data-i18n-placeholder="placeholder_cover_caption"
+                       placeholder="変換後のスタイル（例: jazz, acoustic, lo-fi）">
+            </div>
+            <details class="collapsible-section">
+                <summary class="collapsible-summary" data-i18n="label_cover_lyrics">歌詞（任意）</summary>
+                <textarea id="cover-lyrics" class="simple-textarea cover-textarea"
+                          data-i18n-placeholder="placeholder_cover_lyrics"
+                          placeholder="新しい歌詞を入力（空欄なら原曲の構造を維持）"></textarea>
+            </details>
+        </section>
+
+        <!-- ===== リペイントモード パネル ===== -->
+        <section class="simple-section repaint-mode-section" id="repaint-panel">
+            <label class="section-label" data-i18n="label_repaint_title">🎨 リペイントモード — 音楽の一部を再生成</label>
+            <div class="upload-area" id="repaint-upload-area">
+                <input type="file" id="repaint-file-input" accept="audio/*" class="file-input-hidden">
+                <div class="upload-placeholder" id="repaint-upload-placeholder" data-i18n="label_upload_audio">🎵 音声ファイルをドラッグ＆ドロップ、またはクリックして選択</div>
+                <div class="upload-file-info" id="repaint-file-info" style="display:none">
+                    <span id="repaint-file-name"></span>
+                    <button class="upload-clear-btn" onclick="clearRepaintFile()">✕</button>
+                </div>
+            </div>
+            <div class="repaint-controls">
+                <div class="control-item">
+                    <label data-i18n="label_repaint_range">再生成区間（秒）</label>
+                    <div class="repaint-range-row">
+                        <input type="number" id="repaint-start" class="repaint-time-input" min="0" step="0.1" value="0" placeholder="開始">
+                        <span class="range-separator">〜</span>
+                        <input type="number" id="repaint-end" class="repaint-time-input" min="0" step="0.1" value="0" placeholder="終了">
+                        <span class="range-unit" data-i18n="label_seconds">秒</span>
+                    </div>
+                    <div class="slider-hint" data-i18n="hint_repaint_range">指定区間のみ再生成し、それ以外はそのまま</div>
+                </div>
+            </div>
+            <div class="repaint-caption-row">
+                <input type="text" id="repaint-caption" class="simple-input"
+                       data-i18n-placeholder="placeholder_repaint_caption"
+                       placeholder="再生成部分のスタイル指定（任意）">
+            </div>
+            <details class="collapsible-section">
+                <summary class="collapsible-summary" data-i18n="label_repaint_lyrics">歌詞（任意）</summary>
+                <textarea id="repaint-lyrics" class="simple-textarea repaint-textarea"
+                          data-i18n-placeholder="placeholder_repaint_lyrics"
+                          placeholder="再生成部分の歌詞（空欄ならAIが判断）"></textarea>
+            </details>
+        </section>
+
+        <!-- おまかせ生成（Simple Mode） -->
+        <section class="simple-section normal-mode-section omakase-section" id="omakase-section">
+            <details class="collapsible-section">
+                <summary class="collapsible-summary section-label" data-i18n="label_omakase">🪄 おまかせ生成</summary>
+                <div class="omakase-row">
+                    <input type="text" id="omakase-input" class="simple-input omakase-input"
+                           data-i18n-placeholder="placeholder_omakase"
+                           placeholder="例: 夏の海辺で聴きたい爽やかなポップ">
+                    <button class="omakase-random-btn" id="omakase-random-btn" onclick="fillRandomSample()" title="ランダム">🎲 <span data-i18n="btn_random">ランダム</span></button>
+                </div>
+            </details>
+        </section>
+
+        <!-- 生成コントロール -->
+        <section class="simple-section control-bar">
+            <div class="control-row">
+                <div class="control-item">
+                    <label data-i18n="label_duration">曲長</label>
+                    <select class="simple-select" id="simple-duration">
+                        <option value="auto" selected data-i18n="dur_auto">自動（AI推定）</option>
+                        <option value="30" data-i18n="dur_30">30秒</option>
+                        <option value="45" data-i18n="dur_45">45秒</option>
+                        <option value="60" data-i18n="dur_60">60秒</option>
+                        <option value="90" data-i18n="dur_90">90秒</option>
+                        <option value="120" data-i18n="dur_120">120秒</option>
+                        <option value="180" data-i18n="dur_180">180秒</option>
+                        <option value="240" data-i18n="dur_240">240秒</option>
+                        <option value="300" data-i18n="dur_300">300秒</option>
+                    </select>
+                </div>
+                <div class="control-item">
+                    <label data-i18n="label_language">言語</label>
+                    <select class="simple-select" id="simple-language">
+                        <option value="ja" selected>日本語</option>
+                        <option value="en">English</option>
+                        <option value="zh">中文</option>
+                        <option value="ko">한국어</option>
+                        <option value="es">Español</option>
+                        <option value="fr">Français</option>
+                        <option value="de">Deutsch</option>
+                        <option value="it">Italiano</option>
+                        <option value="pt">Português</option>
+                        <option value="ru">Русский</option>
+                        <option value="th">ไทย</option>
+                        <option value="vi">Tiếng Việt</option>
+                        <option value="id">Bahasa Indonesia</option>
+                    </select>
+                </div>
+                <div class="control-item">
+                    <label data-i18n="label_batch">曲数</label>
+                    <select class="simple-select" id="simple-batch">
+                        <option value="1" selected data-i18n="batch_1">1曲</option>
+                        <option value="2" data-i18n="batch_2">2曲</option>
+                        <option value="4" data-i18n="batch_4">4曲</option>
+                    </select>
+                </div>
+                <div class="control-item">
+                    <label data-i18n="label_ace_model">モデル</label>
+                    <select class="simple-select" id="simple-ace-model">
+                        <option value="" disabled selected data-i18n="ace_model_loading">読み込み中...</option>
+                    </select>
+                </div>
+                <div class="control-item">
+                    <label class="inst-check">
+                        <input type="checkbox" id="simple-inst">
+                        <span data-i18n="label_inst">楽器のみ</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 詳細設定アコーディオン -->
+            <details class="collapsible-section advanced-settings-accordion">
+                <summary class="collapsible-summary advanced-summary" data-i18n="label_advanced_settings">詳細設定</summary>
+                <div class="control-row advanced-control-row">
+                    <div class="control-item">
+                        <label data-i18n="label_steps">STEP</label>
+                        <select class="simple-select" id="simple-steps">
+                            <option value="8" selected data-i18n="steps_8">8 (Turbo)</option>
+                            <option value="20" data-i18n="steps_20">20 (高速)</option>
+                            <option value="50" data-i18n="steps_50">50 (標準)</option>
+                            <option value="80" data-i18n="steps_80">80 (高品質)</option>
+                            <option value="100" data-i18n="steps_100">100 (最高品質)</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label data-i18n="label_shift">Shift</label>
+                        <select class="simple-select" id="simple-shift"
+                                data-i18n-title="tooltip_shift"
+                                title="タイムステップシフト。低い値=音質重視、高い値=構造重視">
+                            <option value="auto" selected data-i18n="shift_auto">自動</option>
+                            <option value="1.0" data-i18n="shift_1">1.0 (ディテール重視)</option>
+                            <option value="2.0" data-i18n="shift_2">2.0 (バランス)</option>
+                            <option value="3.0" data-i18n="shift_3">3.0 (Turbo推奨)</option>
+                            <option value="4.0" data-i18n="shift_4">4.0 (構造重視)</option>
+                            <option value="5.0" data-i18n="shift_5">5.0 (最大)</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label data-i18n="label_infer_method">Sampler</label>
+                        <select class="simple-select" id="simple-infer-method"
+                                data-i18n-title="tooltip_infer_method"
+                                title="サンプリング方式。ODE=安定・再現性◎、SDE=多様・有機的な質感">
+                            <option value="auto" selected data-i18n="infer_auto">自動 (ODE)</option>
+                            <option value="ODE" data-i18n="infer_ode">ODE (安定・クリーン)</option>
+                            <option value="SDE" data-i18n="infer_sde">SDE (有機的・多様)</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label class="inst-check">
+                            <input type="checkbox" id="simple-builtin-caption" checked>
+                            <span data-i18n="label_builtin_caption">キャプション自動</span>
+                        </label>
+                    </div>
+                    <div class="control-item">
+                        <label class="inst-check">
+                            <input type="checkbox" id="simple-thinking" checked>
+                            <span data-i18n="label_thinking">Thinking</span>
+                        </label>
+                    </div>
+                    <div class="control-item">
+                        <button class="debug-info-btn" id="debug-info-btn" onclick="toggleDebugPanel()" data-i18n="btn_debug">詳細情報</button>
+                    </div>
+                </div>
+            </details>
+        </section>
+
+        <!-- 作詞設定アコーディオン（詳細オプション + テーマ + 歌詞をまとめて開閉） -->
+        <details class="simple-section normal-mode-section collapsible-section lyrics-settings-accordion">
+            <summary class="section-label collapsible-summary" data-i18n="label_lyrics_settings">作詞設定</summary>
+            <div class="lyrics-settings-body">
+
+                <!-- 詳細オプション -->
+                <div class="subsection-label" data-i18n="label_options">詳細オプション</div>
+                <div class="options-body">
+                    <div class="options-row">
+                        <span class="options-label" data-i18n="label_mood">ムード：</span>
+                        <div class="mood-chips" id="mood-chips">
+                            <button class="mood-chip chip-clear" onclick="clearMoodChips()" title="クリア">✕</button>
+                            <button class="mood-chip" data-mood="bright and happy" data-i18n="mood_happy">😊 明るい</button>
+                            <button class="mood-chip" data-mood="bittersweet and sad" data-i18n="mood_sad">😢 切ない</button>
+                            <button class="mood-chip" data-mood="intense and powerful" data-i18n="mood_intense">🔥 激しい</button>
+                            <button class="mood-chip" data-mood="calm and gentle" data-i18n="mood_calm">🍃 穏やか</button>
+                            <button class="mood-chip" data-mood="mysterious and fantastical" data-i18n="mood_mystic">✨ 神秘的</button>
+                            <button class="mood-chip" data-mood="romantic and tender" data-i18n="mood_romantic">💕 ロマンチック</button>
+                            <button class="mood-chip" data-mood="playful and fun" data-i18n="mood_fun">🎉 楽しい</button>
+                            <button class="mood-chip" data-mood="melancholic and dark" data-i18n="mood_dark">🌙 メランコリック</button>
+                            <button class="mood-chip" data-mood="epic and grand" data-i18n="mood_epic">🏔️ 壮大</button>
+                            <button class="mood-chip" data-mood="cool and stylish" data-i18n="mood_cool">😎 クール</button>
+                        </div>
+                    </div>
+                    <div class="options-row">
+                        <span class="options-label" data-i18n="label_vocal">ボーカル：</span>
+                        <div class="mood-chips" id="vocal-chips">
+                            <button class="mood-chip chip-clear" onclick="clearVocalChips()" title="クリア">✕</button>
+                            <button class="mood-chip" data-vocal="female vocal" data-i18n="vocal_female">👩 女声</button>
+                            <button class="mood-chip" data-vocal="male vocal" data-i18n="vocal_male">👨 男声</button>
+                            <button class="mood-chip" data-vocal="powerful vocal" data-i18n="vocal_powerful">🎤 力強い</button>
+                            <button class="mood-chip" data-vocal="breathy whisper vocal" data-i18n="vocal_whisper">🌬️ ウィスパー</button>
+                            <button class="mood-chip" data-vocal="falsetto vocal" data-i18n="vocal_falsetto">🎵 ファルセット</button>
+                            <button class="mood-chip" data-vocal="vocal harmonies" data-i18n="vocal_harmony">👥 ハーモニー</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ネガティブプロンプト -->
+                <div class="subsection-label" data-i18n="label_negative_prompt">ネガティブプロンプト</div>
+                <input type="text" id="negative-prompt" class="simple-input negative-prompt-input"
+                       data-i18n-placeholder="placeholder_negative_prompt"
+                       data-i18n-title="tooltip_negative_prompt"
+                       placeholder="例: low quality, noisy, distorted（空欄ならデフォルト適用）"
+                       title="生成時に避けたい要素を指定します。空欄の場合は品質低下防止のデフォルト値が自動適用されます。">
+
+                <!-- テーマ / シナリオ -->
+                <div class="subsection-label" data-i18n="label_theme">テーマ / シナリオ</div>
+                <input type="text" id="simple-theme" class="simple-input"
+                       data-i18n-placeholder="placeholder_theme"
+                       placeholder="例: 夜空を見上げて願いを込める魔法少女の物語">
+
+                <!-- 歌詞 -->
+                <div class="subsection-label" data-i18n="label_lyrics">歌詞（空欄ならAIが自動生成）</div>
+                <div class="debug-caption-edit">
+                    <textarea id="simple-lyrics" class="simple-textarea"
+                              data-i18n-placeholder="placeholder_lyrics"
+                              placeholder="[verse]&#10;星の海に浮かぶ願いが&#10;夸空を駆け巡る&#10;&#10;[chorus]&#10;輝く未来へ..."></textarea>
+                    <button class="caption-clear-btn" onclick="clearLyrics()" data-i18n="btn_lyrics_regen" title="クリアして再度AIに生成させる">♻️ 再生成</button>
+                </div>
+
+            </div>
+        </details>
+
+        <!-- JUKEBOX: Now Playing ステータス -->
+        <section class="simple-section jukebox-section">
+            <div class="jukebox-now-playing" id="jukebox-now-playing">
+                <span class="now-playing-icon">🎶</span>
+                <span class="now-playing-text" id="jukebox-now-playing-text">再生待機中...</span>
+                <span class="now-playing-count" id="jukebox-now-playing-count"></span>
+            </div>
+        </section>
+
+        <!-- 生成 + 再生エリア -->
+        <section class="simple-section generate-area">
+            <!-- ステータス -->
+            <div class="simple-status" id="simple-status"></div>
+            <!-- プログレスバー -->
+            <div class="simple-progress" id="simple-progress">
+                <div class="simple-progress-fill" id="simple-progress-fill"></div>
+                <span class="simple-progress-text" id="simple-progress-text"></span>
+            </div>
+            <!-- 通常モード: 生成ボタン + プレーヤー -->
+            <div class="generate-row normal-generate-area">
+                <button class="generate-btn" id="simple-generate-btn" onclick="generateSimple()">
+                    <span data-i18n="btn_generate">🎵 音楽を生成</span>
+                </button>
+                <div class="inline-player" id="inline-player">
+                    <div class="track-buttons" id="track-buttons"></div>
+                    <a class="dl-btn" id="simple-dl-btn" href="#" download data-i18n-title="title_download" title="ダウンロード">⬇️</a>
+                    <input type="range" class="seek-bar" id="seek-bar" min="0" max="100" value="0">
+                    <span class="time-display" id="time-display">0:00 / 0:00</span>
+                    <button class="volume-btn" id="volume-btn" onclick="toggleMute()" title="ミュート">🔊</button>
+                    <input type="range" class="volume-bar" id="volume-bar" min="0" max="100" value="80">
+                </div>
+            </div>
+            <!-- JUKEBOX モード: スタート/ストップ + プレーヤー -->
+            <div class="generate-row jukebox-generate-area">
+                <button class="jukebox-start-btn" id="jukebox-start-btn" onclick="toggleJukebox()">
+                    ▶ スタート
+                </button>
+                <div class="inline-player" id="jukebox-inline-player">
+                    <input type="range" class="seek-bar" id="jukebox-seek-bar" min="0" max="100" value="0">
+                    <span class="time-display" id="jukebox-time-display">0:00 / 0:00</span>
+                    <button class="volume-btn" id="jukebox-volume-btn" onclick="toggleMute()" title="ミュート">🔊</button>
+                    <input type="range" class="volume-bar" id="jukebox-volume-bar" min="0" max="100" value="80">
+                </div>
+            </div>
+            <audio id="simple-audio" crossorigin="anonymous"></audio>
+        </section>
+
+        <!-- 生成履歴 -->
+        <details class="simple-section history-section collapsible-section" id="history-section">
+            <summary class="collapsible-summary section-label" data-i18n="history_title">履歴</summary>
+            <div class="history-list" id="history-list">
+                <div class="history-empty" data-i18n="history_empty">生成履歴はまだありません</div>
+            </div>
+        </details>
+    </div>
+
+    <!-- 円形オーバーレイビジュアライザー -->
+    <div class="circle-overlay" id="circle-overlay">
+        <div class="overlay-bg-image" id="overlay-bg-image"></div>
+        <canvas id="circle-canvas"></canvas>
+        <div class="overlay-genre-name" id="overlay-genre-name"></div>
+        <div class="overlay-song-title" id="overlay-song-title"></div>
+        <div class="overlay-lyrics" id="overlay-lyrics">
+            <div class="telop-container" id="telop-container"></div>
+        </div>
+        <div class="overlay-controls" id="overlay-controls">
+            <div class="overlay-tracks" id="overlay-tracks"></div>
+            <div class="viz-mode-selector" id="viz-mode-selector">
+                <button class="viz-mode-btn active" data-mode="spectrum" title="スペクトル">▮▮</button>
+                <button class="viz-mode-btn" data-mode="wave" title="ウェーブ">〜</button>
+                <button class="viz-mode-btn" data-mode="ring" title="リング">○</button>
+                <button class="viz-mode-btn" data-mode="particles" title="パーティクル">✧</button>
+                <button class="viz-mode-btn" data-mode="pulse" title="パルス">◉</button>
+                <span class="viz-sep">│</span>
+                <button class="viz-mode-btn" data-mode="aurora" title="オーロラ">🌊</button>
+                <button class="viz-mode-btn" data-mode="fireworks" title="花火">🎆</button>
+                <button class="viz-mode-btn" data-mode="matrix" title="マトリックス">💻</button>
+                <button class="viz-mode-btn" data-mode="orbit" title="軌道">🪐</button>
+                <button class="viz-mode-btn" data-mode="fire" title="炎">🔥</button>
+            </div>
+            <a class="overlay-dl-btn" id="overlay-dl-btn" href="#" download>⬇️</a>
+            <input type="range" class="overlay-seek" id="overlay-seek" min="0" max="100" value="0">
+            <span class="overlay-time" id="overlay-time">0:00 / 0:00</span>
+            <button class="volume-btn overlay-volume-btn" id="overlay-volume-btn" onclick="toggleMute()" title="ミュート">🔊</button>
+            <input type="range" class="volume-bar overlay-volume-bar" id="overlay-volume-bar" min="0" max="100" value="80">
+        </div>
+        <div class="overlay-hint" data-i18n="overlay_hint">タップで閉じる</div>
+    </div>
+
+    <!-- タグ・キャプション表示エリア -->
+    <div class="debug-panel collapsed" id="debug-panel">
+        <div class="debug-body" id="debug-body">
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_genre">ジャンル</span>
+                <span class="debug-value" id="debug-genre">—</span>
+            </div>
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_theme">テーマ</span>
+                <span class="debug-value" id="debug-theme">—</span>
+            </div>
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_mode">モード</span>
+                <span class="debug-value" id="debug-mode">—</span>
+            </div>
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_tags">タグ (raw)</span>
+                <span class="debug-value debug-caption" id="debug-tags">—</span>
+            </div>
+            <div class="debug-row debug-caption-row">
+                <span class="debug-label" data-i18n="debug_caption">キャプション</span>
+                <div class="debug-caption-edit">
+                    <textarea class="debug-caption-textarea" id="debug-caption" rows="3" spellcheck="false" data-i18n-placeholder="placeholder_debug_caption"
+                              placeholder="生成後にキャプションが表示されます。編集すると次回生成時に有効になります。"></textarea>
+                    <button class="caption-clear-btn" onclick="clearManualCaption()" data-i18n="btn_caption_regen" title="クリアして再度AIに生成させる">♻️ 再生成</button>
+                </div>
+            </div>
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_lang">言語</span>
+                <span class="debug-value" id="debug-lang">—</span>
+            </div>
+            <div class="debug-row">
+                <span class="debug-label" data-i18n="debug_params">パラメータ</span>
+                <span class="debug-value debug-caption" id="debug-params">—</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=20260325a"></script>
+
+    <footer class="simple-footer">
+        <p>Powered by <a href="https://github.com/ace-step/ACE-Step" target="_blank" rel="noopener">ACE-Step 1.5</a> &amp; ゆずき</p>
+    </footer>
+</body>
+</html>
