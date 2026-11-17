@@ -49,6 +49,37 @@ close_api_server.bat
 - Override settings before launching, e.g. `set ACESTEP_GPU_PROFILE=large` (same variables as 起動コマンド.md). `PYTORCH_ALLOC_CONF` is not set on Windows.
 - The Windows scripts have not been exercised on a real machine yet; please open an issue if something fails.
 
+## Running the bundled Easy Music app and choosing the LLM
+
+`./setup.sh` / `setup.bat` also build the environment for Easy Music (`easy-music/`). With the API server running, start it in another terminal (the argument is the port):
+
+```bash
+cd ACE-Step-1.5-fast
+./run_easy_music.sh 8888
+```
+
+On Windows: `run_easy_music.bat 8888`. Then open `http://localhost:8888`.
+
+Lyrics are written by an OpenAI-compatible LLM API (Ollama, llama.cpp server, LM Studio, vLLM, OpenAI, ...); the default is `http://localhost:11434/v1` (Ollama). If it cannot be reached, the app falls back to a CPU GGUF model (Qwen3-1.7B). Two ways to set it, in order of precedence: launch arguments > `easy-music/.env` > defaults.
+
+Launch arguments:
+
+```bash
+./run_easy_music.sh 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
+```
+
+(or `--llm-host LLM_HOST --llm-port 11434`; on Windows `run_easy_music.bat 8888 --llm-url ...`)
+
+`easy-music/.env` (persistent; keep `OPENAI_API_KEY` as a dummy for servers without authentication):
+
+```
+OPENAI_BASE_URL=http://LLM_HOST:11434/v1
+OPENAI_API_KEY=YOUR_KEY
+OPENAI_CHAT_MODEL=gemma3:latest
+```
+
+In the same way, the ACE server is set with `--ace-url` / `ACE_STEP_API_URL` (default `http://127.0.0.1:8001`) and the optional background-image server with `--img-url` / `IMAGE_GENERATION_URL`.
+
 ## Manual steps
 
 ```bash
