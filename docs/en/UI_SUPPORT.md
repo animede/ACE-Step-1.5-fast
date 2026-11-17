@@ -13,8 +13,6 @@ multiple overlapping frontends alive.
 | Gradio-mounted REST API | `--enable-api`, `acestep/ui/gradio/api/api_routes.py` | Supported integration surface | Optional API routes hosted alongside Gradio. Keep behavior stable for local integrations. |
 | Standalone REST API server | `acestep-api`, `acestep/api_server.py` | Supported API-only surface | Service/integration interface. Not a UI, but a likely backend dependency for future UIs. |
 | OpenRouter-compatible API server | `acestep-openrouter`, `openrouter/openrouter_api_server.py` | Supported API-only surface | OpenAI/OpenRouter-compatible integration path. Not a UI. |
-| Generation CLI | `cli.py`, `acestep` console script | Supported command-line workflow | Useful for scripting, configuration, and non-browser generation. Not a replacement for the web UI. |
-| Side-Step training CLI/wizard | `train.py`, `acestep/training_v2/ui` | Supported or separately scoped training workflow | Rich terminal workflow for training. Do not remove until Gradio training parity and Side-Step ownership are explicitly reviewed. |
 | Static Studio HTML UI | `ui/studio.html` | Removed | The experimental frontend-only prototype was removed to avoid duplicating product UI surface area before new UI work. |
 | Streamlit UI | `acestep/ui/streamlit` | Removed | The experimental prototype was removed because it duplicated product UI responsibilities with its own model cache, navigation, settings, project storage, and docs. |
 
