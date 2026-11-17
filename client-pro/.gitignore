@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment Variables
+.env
+
+# Logs
+*.log
+server.log
+
+# Generated audio outputs
+*.mp3
+*.wav
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Local LLM models (auto-downloaded)
+models/*.gguf
+
+# Research notes (personal)
+ACE_STEP15_RESEARCH_NOTE_JP.md

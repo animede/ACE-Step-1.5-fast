@@ -1,0 +1,1191 @@
+# ACE-Step 音声参照機能 TIPS
+
+実践的なヒントと使い方ガイド
+
+---
+
+## 目次
+
+1. [reference_audio vs src_audio の違い](#1-reference_audio-vs-src_audio-の違い)
+2. [タスクタイプ別の使い方](#2-タスクタイプ別の使い方)
+3. [audio_cover_strength の調整術](#3-audio_cover_strength-の調整術)
+4. [実践的なワークフロー](#4-実践的なワークフロー)
+5. [よくある間違いと解決策](#5-よくある間違いと解決策)
+6. [上級テクニック](#6-上級テクニック)
+7. [Simple Mode（シンプルモード）](#7-simple-modeシンプルモード)
+8. [Format機能（Caption自動拡張）](#8-format機能caption自動拡張)
+9. [Thinking Mode（Chain-of-Thought推論）](#9-thinking-modechain-of-thought推論)
+10. [LM（言語モデル）パラメータ](#10-lm言語モデルパラメータ)
+11. [DiT（Diffusion Transformer）パラメータ](#11-ditdiffusion-transformerパラメータ)
+12. [CFG（Classifier-Free Guidance）](#12-cfgclassifier-free-guidance)
+13. [Seed制御とバッチ生成](#13-seed制御とバッチ生成)
+14. [Lego/Extract/Complete タスク（Baseモデル専用）](#14-legoextractcomplete-タスクbaseモデル専用)
+15. [歌詞アライメントスコア](#15-歌詞アライメントスコア)
+16. [LoRA（Low-Rank Adaptation）](#16-loralow-rank-adaptation)
+17. [音声フォーマットとデコード](#17-音声フォーマットとデコード)
+18. [Caption記述のベストプラクティス](#18-caption記述のベストプラクティス)
+19. [Lyrics構造タグ](#19-lyrics構造タグ)
+20. [トラブルシューティング](#20-トラブルシューティング)
+
+---
+
+## 1. reference_audio vs src_audio の違い
+
+### 一言で言うと
+
+| パラメータ | 役割 | 例え |
+|-----------|------|------|
+| `reference_audio_path` | **音の「質感」を借りる** | 絵画の「色使いや筆のタッチ」 |
+| `src_audio_path` | **曲の「骨格」を借りる** | 絵画の「構図やデッサン」 |
+
+### 詳細比較表
+
+| 観点 | reference_audio | src_audio |
+|------|-----------------|-----------|
+| **主な用途** | スタイル転送、音色参照 | カバー、リミックス |
+| **制御対象** | 音色、ミックス感、雰囲気 | メロディ、リズム、コード進行 |
+| **対応タスク** | text2music, cover, repaint | cover, repaint |
+| **影響範囲** | 全体的（グローバル） | 構造的（セマンティック） |
+| **処理方法** | VAEでラテント抽出 | セマンティックコード化 |
+
+### 💡 TIP: どちらを使うか迷ったら
+
+```
+「この曲と似た雰囲気の新曲を作りたい」
+  → reference_audio_path を使う
+
+「この曲を別ジャンルでカバーしたい」
+  → src_audio_path を使う（task_type: cover）
+
+「両方の要素を取り入れたい」
+  → 両方指定可能（ただし効果の混合に注意）
+```
+
+---
+
+## 2. タスクタイプ別の使い方
+
+### text2music + reference_audio
+
+**目的**: 新曲に参照音声の「雰囲気」を反映
+
+```python
+{
+    "task_type": "text2music",
+    "caption": "energetic rock, powerful male vocal",
+    "lyrics": "[Verse]\n歌詞をここに...",
+    "reference_audio_path": "/path/to/reference.wav",
+    "audio_cover_strength": 0.2  # スタイル転送なら低めに
+}
+```
+
+**ポイント**:
+- `audio_cover_strength` は **0.1〜0.3** が推奨
+- 高すぎると参照音声に引っ張られすぎる
+- Captionの記述が最優先される
+
+---
+
+### cover（カバー/リミックス）
+
+**目的**: 既存曲の構造を維持しつつ、スタイルを変更
+
+```python
+{
+    "task_type": "cover",
+    "caption": "smooth jazz, saxophone, female breathy vocal",
+    "lyrics": "[Verse]\n新しい歌詞（または元の歌詞）",
+    "src_audio_path": "/path/to/original_song.wav",
+    "audio_cover_strength": 0.7  # 構造維持なら高めに
+}
+```
+
+**ポイント**:
+- `audio_cover_strength` は **0.5〜0.9** が推奨
+- 歌詞を変更すると「歌詞違いカバー」が作れる
+- Captionでジャンルを変更すると「ジャンル違いカバー」
+
+---
+
+### repaint（部分修正/継続生成）
+
+**目的**: 既存音声の一部を修正または拡張
+
+```python
+{
+    "task_type": "repaint",
+    "caption": "同じスタイルの説明",
+    "lyrics": "[Chorus]\n修正後の歌詞",
+    "src_audio_path": "/path/to/original.wav",
+    "repainting_start": 30.0,  # 30秒から
+    "repainting_end": 60.0,    # 60秒まで修正
+    "audio_cover_strength": 0.8
+}
+```
+
+**ポイント**:
+- 修正範囲は **3〜90秒** が有効
+- 周囲のコンテキストから自然に補完される
+- 無限長の楽曲生成にも応用可能
+
+---
+
+## 3. audio_cover_strength の調整術
+
+### 数値による効果の違い
+
+| 値 | 効果 | 使用シーン |
+|----|------|-----------|
+| **0.0〜0.2** | 軽いスタイル影響のみ | text2musicでの雰囲気参照 |
+| **0.3〜0.5** | バランス型 | 自由度を保ちつつ構造参照 |
+| **0.6〜0.8** | 構造重視 | カバー曲制作 |
+| **0.9〜1.0** | ほぼ忠実に再現 | 厳密なリミックス |
+
+### 💡 TIP: 段階的に調整する
+
+```
+最初は中間値（0.5）で試して、結果を確認してから調整：
+
+結果が「参照に似すぎ」 → 値を下げる（0.3へ）
+結果が「参照と違いすぎ」→ 値を上げる（0.7へ）
+```
+
+### 視覚的イメージ
+
+```
+audio_cover_strength の影響度
+
+0.0 ─────────────────────────────────── 1.0
+│                                       │
+▼                                       ▼
+完全に新規生成                    参照音声に忠実
+（Captionのみで決定）              （構造・音色を維持）
+
+         ↓ 推奨値 ↓
+  スタイル転送: 0.2
+  バランス:     0.5
+  カバー:       0.7-0.8
+```
+
+---
+
+## 4. 実践的なワークフロー
+
+### ワークフロー1: 既存曲のジャンル変換
+
+```
+Step 1: 元曲を src_audio_path に指定
+Step 2: task_type を "cover" に設定
+Step 3: Caption で新しいジャンルを記述
+Step 4: audio_cover_strength を 0.6〜0.8 に設定
+Step 5: 必要に応じて Lyrics も変更
+```
+
+**例: ポップスをジャズにリアレンジ**
+
+```python
+{
+    "task_type": "cover",
+    "caption": "smooth jazz, piano trio, double bass, brushed drums, sophisticated harmony",
+    "lyrics": "[Verse]\n元の歌詞または新歌詞",
+    "src_audio_path": "/path/to/pop_song.wav",
+    "audio_cover_strength": 0.7
+}
+```
+
+---
+
+### ワークフロー2: 音色スタイルの転送
+
+```
+Step 1: スタイル参照したい曲を reference_audio_path に指定
+Step 2: task_type は "text2music" のまま
+Step 3: 作りたい曲の内容を Caption/Lyrics で指定
+Step 4: audio_cover_strength を 0.15〜0.25 に設定
+```
+
+**例: 90年代R&Bの質感を持つ新曲**
+
+```python
+{
+    "task_type": "text2music",
+    "caption": "90s R&B, smooth vocals, synthesizer pads, drum machine",
+    "lyrics": "[Verse]\n完全に新しい歌詞",
+    "reference_audio_path": "/path/to/90s_rnb_reference.wav",
+    "audio_cover_strength": 0.2
+}
+```
+
+---
+
+### ワークフロー3: 曲の一部を修正
+
+```
+Step 1: 元曲を src_audio_path に指定
+Step 2: task_type を "repaint" に設定
+Step 3: repainting_start/end で修正範囲を指定
+Step 4: 修正部分の Lyrics を記述
+Step 5: Caption は元曲のスタイルを維持
+```
+
+**例: サビ部分（30-60秒）の歌詞を変更**
+
+```python
+{
+    "task_type": "repaint",
+    "caption": "元曲と同じスタイル記述",
+    "lyrics": "[Chorus]\n新しいサビの歌詞",
+    "src_audio_path": "/path/to/original.wav",
+    "repainting_start": 30.0,
+    "repainting_end": 60.0,
+    "audio_cover_strength": 0.85
+}
+```
+
+---
+
+### ワークフロー4: 無限長楽曲の生成
+
+```
+Step 1: 最初のセグメント（0-60秒）を text2music で生成
+Step 2: 生成結果を src_audio_path に指定
+Step 3: task_type を "repaint" に設定
+Step 4: repainting_start を末尾付近（55秒など）に設定
+Step 5: repainting_end を希望の延長位置（120秒など）に設定
+Step 6: 繰り返して連結
+```
+
+---
+
+## 5. よくある間違いと解決策
+
+### ❌ 間違い1: text2music で src_audio_path を使う
+
+```python
+# ❌ 間違い
+{
+    "task_type": "text2music",
+    "src_audio_path": "/path/to/song.wav"  # 無視される
+}
+```
+
+**解決**: src_audio_path は `cover` または `repaint` タスクでのみ有効
+
+```python
+# ✅ 正解
+{
+    "task_type": "cover",
+    "src_audio_path": "/path/to/song.wav"
+}
+```
+
+---
+
+### ❌ 間違い2: audio_cover_strength が高すぎる
+
+```python
+# ❌ スタイル転送なのに強度が高い
+{
+    "task_type": "text2music",
+    "reference_audio_path": "/path/to/ref.wav",
+    "audio_cover_strength": 0.9  # 参照に支配される
+}
+```
+
+**解決**: スタイル転送は低めの値を使用
+
+```python
+# ✅ 正解
+{
+    "task_type": "text2music",
+    "reference_audio_path": "/path/to/ref.wav",
+    "audio_cover_strength": 0.2
+}
+```
+
+---
+
+### ❌ 間違い3: CaptionとLyricsの矛盾
+
+```python
+# ❌ 矛盾した指示
+{
+    "caption": "classical violin solo, intimate chamber music",
+    "lyrics": "[Guitar Solo - electric - distorted]\n..."
+}
+```
+
+**解決**: CaptionとLyricsで一貫した記述を
+
+```python
+# ✅ 正解
+{
+    "caption": "classical violin solo, intimate chamber music",
+    "lyrics": "[Violin Solo - expressive]\n..."
+}
+```
+
+---
+
+### ❌ 間違い4: Turboモデルで非対応タスク
+
+```python
+# ❌ Turboモデルでlego/extract/complete
+{
+    "dit_model": "acestep-v15-turbo",
+    "task_type": "lego"  # Baseモデルのみ対応
+}
+```
+
+**解決**: 高度なタスクはBaseモデルを使用
+
+```python
+# ✅ 正解
+{
+    "dit_model": "acestep-v15-base",
+    "task_type": "lego"
+}
+```
+
+---
+
+### ❌ 間違い5: 短すぎる参照音声
+
+```python
+# ❌ 5秒の参照音声
+"reference_audio_path": "/path/to/short_5sec.wav"
+```
+
+**注意**: システムは30秒未満の音声を自動的にリピートして補完しますが、短すぎると特徴抽出が不十分になる可能性があります。
+
+**推奨**: **30秒以上**の参照音声を使用
+
+---
+
+## 6. 上級テクニック
+
+### テクニック1: 複数回生成でバリエーション作成
+
+```python
+# 同じ設定で複数回生成（seed違い）
+base_params = {
+    "task_type": "cover",
+    "src_audio_path": "/path/to/song.wav",
+    "audio_cover_strength": 0.7,
+    "caption": "jazz arrangement",
+    "lyrics": "[Verse]\n..."
+}
+
+# batch_sizeを増やすか、複数リクエスト
+for i in range(3):
+    params = {**base_params, "seed": 1000 + i}
+    # リクエスト送信...
+```
+
+**効果**: 同じ構造で異なる解釈の複数バージョンを取得
+
+---
+
+### テクニック2: audio_codes の活用
+
+```python
+# Step 1: extractタスクで既存曲からコードを抽出
+extract_params = {
+    "task_type": "extract",
+    "src_audio_path": "/path/to/song.wav"
+}
+
+# Step 2: 抽出したコードを別の生成に使用
+generate_params = {
+    "task_type": "cover",
+    "audio_codes": extracted_codes,  # 抽出したコードを入力
+    "caption": "new style description",
+    "audio_cover_strength": 0.6
+}
+```
+
+**効果**: 
+- 構造情報を再利用
+- DJミキシング的な組み合わせ
+- 曲の一部だけコードを使用
+
+---
+
+### テクニック3: 段階的なスタイル変換
+
+```
+元曲 (ポップス)
+    ↓ audio_cover_strength: 0.8
+中間曲 (ポップス寄りジャズ)
+    ↓ audio_cover_strength: 0.8
+最終曲 (完全なジャズ)
+```
+
+**効果**: 急激な変換より自然な遷移
+
+---
+
+### テクニック4: thinking モードとの組み合わせ
+
+```python
+# スタイル転送時
+{
+    "thinking": True,  # LMにメタデータ推論させる
+    "use_cot_caption": False,  # Captionは自分で書いたものを使用
+    "reference_audio_path": "/path/to/ref.wav",
+    "audio_cover_strength": 0.2
+}
+```
+
+**効果**: 
+- 参照音声からBPM/キーを推論
+- 自分のCaptionは維持
+- 最適なメタデータで生成
+
+---
+
+### テクニック5: Repaintによるシームレス接続
+
+**2つの曲を自然に繋げる**:
+
+```python
+# 曲Aの末尾と曲Bの冒頭をRepaintで接続
+{
+    "task_type": "repaint",
+    "src_audio_path": "/path/to/concatenated_AB.wav",  # 事前に単純結合
+    "repainting_start": 55.0,  # 曲A末尾付近
+    "repainting_end": 65.0,    # 曲B冒頭付近
+    "caption": "smooth transition, matching style",
+    "audio_cover_strength": 0.9
+}
+```
+
+**効果**: AIが文脈を理解して自然な遷移を生成
+
+---
+
+## クイックリファレンス
+
+### パラメータ早見表
+
+| やりたいこと | task_type | 音声パラメータ | strength推奨値 |
+|-------------|-----------|---------------|---------------|
+| 新曲（雰囲気参照） | text2music | reference_audio | 0.1-0.3 |
+| カバー曲 | cover | src_audio | 0.6-0.9 |
+| リミックス | cover | src_audio | 0.4-0.7 |
+| 部分修正 | repaint | src_audio | 0.7-0.9 |
+| 曲の延長 | repaint | src_audio | 0.8-0.95 |
+| トラック追加 | lego (Base) | src_audio | 0.7-0.9 |
+
+### モデル対応表
+
+| タスク | Turbo | Base | SFT |
+|--------|-------|------|-----|
+| text2music | ✅ | ✅ | ✅ |
+| cover | ✅ | ✅ | ✅ |
+| repaint | ✅ | ✅ | ✅ |
+| lego | ❌ | ✅ | ❌ |
+| extract | ❌ | ✅ | ❌ |
+| complete | ❌ | ✅ | ❌ |
+
+---
+
+## まとめ
+
+1. **reference_audio** = 音の「質感」を借りる（スタイル転送）
+2. **src_audio** = 曲の「骨格」を借りる（カバー/リミックス）
+3. **audio_cover_strength** で影響度を調整（低い=自由、高い=忠実）
+4. **タスクタイプ**に応じて適切なパラメータを選択
+5. **CaptionとLyricsの一貫性**を保つ
+6. **段階的に調整**して最適値を見つける
+
+---
+
+## 7. Simple Mode（シンプルモード）
+
+### 概要
+
+Simple Modeは、最小限の入力で音楽を生成できるモードです。LMが自動的にcaption、lyrics、metadataを生成します。
+
+### 使い方
+
+```python
+# APIリクエスト
+{
+    "sample_mode": True,
+    "sample_query": "夏の海辺で聴きたい爽やかなポップス"
+}
+```
+
+### パラメータ
+
+| パラメータ | 型 | 説明 |
+|-----------|-----|------|
+| `sample_mode` | bool | True でシンプルモードを有効化 |
+| `sample_query` | string | 音楽の説明（自然言語） |
+
+### 💡 TIP: Simple Mode を活用する場面
+
+```
+✅ 適している場面：
+- アイデア探索・インスピレーション獲得
+- プロトタイプの素早い生成
+- 音楽制作の初心者
+
+❌ 避けるべき場面：
+- 細かいコントロールが必要な場合
+- 特定の歌詞が決まっている場合
+- 厳密なメタデータ指定が必要な場合
+```
+
+---
+
+## 8. Format機能（Caption自動拡張）
+
+### 概要
+
+ユーザーが書いた簡単なcaptionを、LMが詳細な音楽記述に自動拡張します。
+
+### 使い方
+
+```python
+# format_input エンドポイントを使用
+response = requests.post(f"{BASE_URL}/format_input", json={
+    "prompt": "sad piano",
+    "lyrics": "[Verse]\n歌詞...",
+    "bpm": 80
+})
+
+# レスポンス例
+{
+    "formatted_prompt": "melancholic piano ballad, intimate atmosphere, soft dynamics, emotional female vocal, minor key, slow tempo around 80 BPM, reverb-laden, introspective mood",
+    "formatted_lyrics": "[Verse - melancholic]\n歌詞..."
+}
+```
+
+### または生成時に自動適用
+
+```python
+{
+    "use_format": True,  # Caption/Lyricsを自動拡張
+    "prompt": "rock song",
+    "lyrics": "[Verse]\n..."
+}
+```
+
+### 💡 TIP: Format機能の効果的な使い方
+
+| 入力 | Format後 |
+|------|----------|
+| "sad song" | "melancholic ballad, piano and strings, soft female vocal, slow tempo, intimate atmosphere, minor key, emotional dynamics" |
+| "energetic rock" | "high-energy rock, distorted electric guitar, powerful drums, male vocal, fast tempo, aggressive attitude, major key, stadium sound" |
+
+**注意**: Format機能は `thinking` モードまたは LM が初期化されている場合のみ動作します。
+
+---
+
+## 9. Thinking Mode（Chain-of-Thought推論）
+
+### 概要
+
+`thinking=True` を設定すると、5Hz LMがChain-of-Thought（CoT）推論を使用して、より高品質な音楽を生成します。
+
+### 動作の違い
+
+| モード | 処理 | 品質 | 速度 |
+|--------|------|------|------|
+| `thinking=True` | LM → セマンティックコード → DiT → 音声 | 高い | 遅い |
+| `thinking=False` | DiT のみ → 音声 | 標準 | 速い |
+
+### CoT関連パラメータ
+
+```python
+{
+    "thinking": True,
+    "use_cot_metas": True,    # BPM/Key/Durationを自動推論
+    "use_cot_caption": True,  # Captionを自動最適化
+    "use_cot_language": True  # 歌詞の言語を自動検出
+}
+```
+
+### 💡 TIP: thinking モードの使い分け
+
+```
+thinking=True を使う場面：
+- 高品質な最終成果物が必要
+- メタデータを自動推論させたい
+- 複雑な音楽構造を生成したい
+
+thinking=False を使う場面：
+- 素早くプロトタイプを作りたい
+- メタデータを手動で細かく指定する
+- Cover/Repaintで構造が既に決まっている
+```
+
+---
+
+## 10. LM（言語モデル）パラメータ
+
+### LMモデルの選択
+
+| モデル | サイズ | 品質 | 速度 | VRAM |
+|--------|--------|------|------|------|
+| `acestep-5Hz-lm-0.6B` | 0.6B | 標準 | 速い | ~2GB |
+| `acestep-5Hz-lm-1.7B` | 1.7B | 良い | 中程度 | ~4GB |
+| `acestep-5Hz-lm-4B` | 4B | 高い | 遅い | ~10GB |
+
+### LMサンプリングパラメータ
+
+```python
+{
+    "lm_temperature": 0.85,     # 創造性（0.0-2.0）
+    "lm_cfg_scale": 2.5,        # プロンプト忠実度
+    "lm_top_k": 0,              # Top-Kサンプリング（0=無効）
+    "lm_top_p": 0.9,            # Top-P（Nucleus）サンプリング
+    "lm_negative_prompt": "NO USER INPUT"  # ネガティブプロンプト
+}
+```
+
+### パラメータ効果
+
+| パラメータ | 低い値 | 高い値 |
+|-----------|--------|--------|
+| `lm_temperature` | 保守的・安定 | 創造的・多様 |
+| `lm_cfg_scale` | 自由度高い | プロンプトに忠実 |
+| `lm_top_p` | 限定的選択 | 多様な選択 |
+
+### 💡 TIP: LMパラメータ調整
+
+```
+安定した結果が欲しい場合：
+  lm_temperature: 0.5-0.7
+  lm_cfg_scale: 3.0-4.0
+
+クリエイティブな結果が欲しい場合：
+  lm_temperature: 1.0-1.5
+  lm_cfg_scale: 1.5-2.0
+```
+
+---
+
+## 11. DiT（Diffusion Transformer）パラメータ
+
+### DiTモデルの選択
+
+| モデル | ステップ数 | 対応タスク | 特徴 |
+|--------|-----------|-----------|------|
+| `acestep-v15-turbo` | 8 | text2music, cover, repaint | 高速 |
+| `acestep-v15-base` | 32-100 | 全タスク（lego, extract, complete含む） | 高品質・CFG対応 |
+| `acestep-v15-sft` | 50 | text2music, cover, repaint | SFT調整済み・CFG対応 |
+
+### 推論パラメータ
+
+```python
+{
+    "inference_steps": 8,      # 拡散ステップ数
+    "guidance_scale": 7.0,     # CFG強度（Base/SFTモデルのみ）
+    "shift": 3.0,              # タイムステップシフト（Base/SFTのみ）
+    "infer_method": "ode"      # 推論方式（"ode" or "sde"）
+}
+```
+
+### infer_method の違い
+
+| 方式 | 特徴 | 用途 |
+|------|------|------|
+| `ode` | 決定論的、再現性あり | 通常の生成 |
+| `sde` | 確率的、ノイズ追加 | より多様な結果 |
+
+### 💡 TIP: inference_steps の目安
+
+```
+Turbo モデル:
+  8 ステップ（固定推奨）
+
+Base/SFT モデル:
+  32  - 高速だが品質やや低下
+  50  - バランス良好（推奨）
+  100 - 最高品質だが遅い
+```
+
+---
+
+## 12. CFG（Classifier-Free Guidance）
+
+### 概要
+
+CFGはプロンプトへの忠実度を制御します。**Base/SFTモデルのみ**で有効です。
+
+### パラメータ
+
+```python
+{
+    "guidance_scale": 7.0,        # CFG強度（1.0-15.0）
+    "use_adg": False,             # Adaptive Dual Guidance
+    "cfg_interval_start": 0.0,    # CFG適用開始（0.0-1.0）
+    "cfg_interval_end": 1.0       # CFG適用終了（0.0-1.0）
+}
+```
+
+### guidance_scale の効果
+
+| 値 | 効果 |
+|----|------|
+| 1.0 | CFG無効（自由生成） |
+| 3.0-5.0 | 軽い誘導 |
+| 7.0 | 標準（推奨） |
+| 10.0-15.0 | 強い誘導（過適合リスク） |
+
+### ADG（Adaptive Dual Guidance）
+
+```python
+{
+    "use_adg": True  # 動的にCFGを調整
+}
+```
+
+ADGは生成プロセス中に自動的にCFG強度を調整し、より自然な結果を得られます。
+
+### cfg_interval の活用
+
+```python
+# 前半のみCFGを適用（後半は自由に）
+{
+    "cfg_interval_start": 0.0,
+    "cfg_interval_end": 0.5
+}
+
+# 後半のみCFGを適用（前半は探索的に）
+{
+    "cfg_interval_start": 0.5,
+    "cfg_interval_end": 1.0
+}
+```
+
+---
+
+## 13. Seed制御とバッチ生成
+
+### Seed制御
+
+```python
+{
+    "seed": 12345,           # 固定シード（再現性）
+    "use_random_seed": False # ランダムシードを無効化
+}
+
+# または
+{
+    "seed": -1,              # ランダムシード
+    "use_random_seed": True  # ランダムシードを有効化
+}
+```
+
+### バッチ生成
+
+```python
+{
+    "batch_size": 4  # 同時に4つのバリエーションを生成
+}
+```
+
+### 💡 TIP: Seed活用術
+
+```
+パラメータ調整時：
+  seed を固定して、パラメータの効果を正確に比較
+
+クリエイティブ探索時：
+  seed をランダムにして、多様なバリエーションを探索
+
+良い結果の再現時：
+  生成結果のseed_valueを保存して、後で再現
+```
+
+---
+
+## 14. Lego/Extract/Complete タスク（Baseモデル専用）
+
+### Lego タスク
+
+既存トラックに新しいトラックを追加します。
+
+```python
+{
+    "task_type": "lego",
+    "dit_model": "acestep-v15-base",  # Baseモデル必須
+    "src_audio_path": "/path/to/vocals.wav",
+    "caption": "add drums and bass",
+    "repainting_start": 0.0,
+    "repainting_end": 60.0
+}
+```
+
+### Extract タスク
+
+ミックスから特定のトラックを抽出します。
+
+```python
+{
+    "task_type": "extract",
+    "dit_model": "acestep-v15-base",
+    "src_audio_path": "/path/to/mix.wav",
+    "instruction": "Extract the vocals track from the audio:"
+}
+```
+
+### Complete タスク
+
+単一トラックに伴奏を追加します。
+
+```python
+{
+    "task_type": "complete",
+    "dit_model": "acestep-v15-base",
+    "src_audio_path": "/path/to/acappella.wav",
+    "caption": "add full band accompaniment"
+}
+```
+
+### 対応トラック名
+
+```python
+TRACK_NAMES = [
+    "woodwinds", "brass", "fx", "synth", "strings", "percussion",
+    "keyboard", "guitar", "bass", "drums", "backing_vocals", "vocals"
+]
+```
+
+---
+
+## 15. 歌詞アライメントスコア
+
+### 概要
+
+生成された音声と歌詞の整合性を自動評価する機能です。
+
+### スコアの種類
+
+| スコア | 説明 |
+|--------|------|
+| `dit_lyrics_alignment_score` | DiTのクロスアテンションに基づく歌詞整合度 |
+| `lm_lyrics_alignment_score` | LMの予測に基づく歌詞整合度 |
+
+### 活用方法
+
+```
+ワークフロー：
+1. batch_size を増やして複数バージョンを生成
+2. 各バージョンの alignment_score を比較
+3. スコアの高いバージョンを選択
+```
+
+### 💡 TIP: スコアの解釈
+
+```
+スコア > 0.7: 歌詞との整合性が高い
+スコア 0.5-0.7: 標準的な整合性
+スコア < 0.5: 歌詞とのズレがある可能性
+```
+
+---
+
+## 16. LoRA（Low-Rank Adaptation）
+
+### 概要
+
+LoRAを使用して、特定のスタイルやアーティストに特化したモデルを作成できます。
+
+### LoRAの読み込み
+
+```python
+# Gradio UI または API経由
+{
+    "lora_path": "/path/to/lora_adapter",
+    "lora_scale": 1.0  # 0.0-1.0
+}
+```
+
+### LoRAスケールの調整
+
+| 値 | 効果 |
+|----|------|
+| 0.0 | LoRA無効（ベースモデルのみ） |
+| 0.5 | LoRAとベースのブレンド |
+| 1.0 | LoRA全適用 |
+
+### 💡 TIP: LoRA活用術
+
+```
+新しいスタイルを試す場合：
+  lora_scale を 0.3-0.5 から始めて徐々に上げる
+
+スタイルを強調したい場合：
+  lora_scale を 0.8-1.0 に設定
+
+スタイルブレンドしたい場合：
+  lora_scale を 0.4-0.6 に設定
+```
+
+---
+
+## 17. 音声フォーマットとデコード
+
+### 出力フォーマット
+
+```python
+{
+    "audio_format": "mp3"  # "mp3", "wav", "flac"
+}
+```
+
+| フォーマット | サイズ | 品質 | 用途 |
+|-------------|--------|------|------|
+| mp3 | 小 | 良い | 配信・共有 |
+| wav | 大 | 最高 | 後処理・マスタリング |
+| flac | 中 | 最高 | アーカイブ |
+
+### タイルドデコード
+
+```python
+{
+    "use_tiled_decode": True  # メモリ効率の良いデコード
+}
+```
+
+長い楽曲を生成する際、メモリ不足を防ぐために有効です。
+
+---
+
+## 18. Caption記述のベストプラクティス
+
+### 推奨される記述次元
+
+| カテゴリ | 例 |
+|----------|-----|
+| **ジャンル/スタイル** | pop, rock, jazz, electronic, hip-hop, R&B, folk |
+| **感情/雰囲気** | melancholic, uplifting, energetic, dreamy, dark |
+| **楽器** | acoustic guitar, piano, synth pads, 808 drums |
+| **音色/質感** | warm, bright, crisp, airy, punchy, lush |
+| **時代参照** | 80s synth-pop, 90s grunge, 2010s EDM |
+| **ボーカル** | female vocal, male vocal, breathy, powerful |
+| **テンポ** | slow tempo, mid-tempo, fast-paced, groovy |
+
+### 効果的なCaption例
+
+```
+❌ 悪い例（曖昧）:
+"a sad song"
+
+✅ 良い例（具体的）:
+"melancholic piano ballad, female breathy vocal, slow tempo, 
+intimate atmosphere, soft strings, minor key"
+```
+
+### 💡 TIP: Caption vs Metadata
+
+```
+Caption に書くべき内容:
+- スタイル、ジャンル、雰囲気
+- 楽器、音色
+- ボーカルの特徴
+
+専用パラメータで指定すべき内容:
+- BPM（bpm パラメータ）
+- キー（keyscale パラメータ）
+- 拍子（timesignature パラメータ）
+- 長さ（duration パラメータ）
+```
+
+---
+
+## 19. Lyrics構造タグ
+
+### 基本構造タグ
+
+| タグ | 説明 |
+|-----|------|
+| `[Intro]` | イントロ |
+| `[Verse]` / `[Verse 1]` | ヴァース |
+| `[Pre-Chorus]` | プリコーラス |
+| `[Chorus]` | サビ/コーラス |
+| `[Bridge]` | ブリッジ |
+| `[Outro]` | アウトロ |
+
+### ダイナミクスタグ
+
+| タグ | 説明 |
+|-----|------|
+| `[Build]` | エネルギー上昇 |
+| `[Drop]` | ドロップ |
+| `[Breakdown]` | ブレイクダウン |
+
+### インストゥルメンタルタグ
+
+| タグ | 説明 |
+|-----|------|
+| `[Instrumental]` | インストゥルメンタル |
+| `[Guitar Solo]` | ギターソロ |
+| `[Piano Interlude]` | ピアノ間奏 |
+
+### ボーカルスタイルタグ
+
+| タグ | 効果 |
+|-----|------|
+| `[raspy vocal]` | ハスキーボイス |
+| `[whispered]` | ささやき |
+| `[falsetto]` | ファルセット |
+| `[powerful belting]` | パワフルな歌唱 |
+| `[spoken word]` | ラップ/語り |
+
+### タグの組み合わせ
+
+```
+✅ 推奨:
+[Chorus - anthemic]
+
+❌ 非推奨（タグの積み重ねすぎ）:
+[Chorus - anthemic - stacked harmonies - high energy - powerful]
+```
+
+---
+
+## 20. トラブルシューティング
+
+### 問題: 歌詞と音声がズレる
+
+```
+解決策:
+1. 歌詞の1行あたりの音節数を6-10に調整
+2. 各行の長さを揃える
+3. セクション間に空行を入れる
+```
+
+### 問題: 指定したBPMと違う
+
+```
+解決策:
+1. CaptionにBPM情報を書かない（専用パラメータを使用）
+2. Captionの「slow」「fast」などとBPMの整合性を確認
+3. 極端な値（30, 280など）を避ける
+```
+
+### 問題: 生成が遅い
+
+```
+解決策:
+1. thinking=False を試す（品質とのトレードオフ）
+2. inference_steps を減らす（Baseモデル）
+3. Turboモデルを使用する
+4. batch_size を減らす
+```
+
+### 問題: メモリ不足
+
+```
+解決策:
+1. batch_size を 1 に設定
+2. use_tiled_decode=True を設定
+3. 小さいLMモデル（0.6B）を使用
+4. duration を短くする
+```
+
+### 問題: スタイルが希望と違う
+
+```
+解決策:
+1. Captionをより具体的に記述
+2. reference_audio で参照曲を指定
+3. audio_cover_strength を調整
+4. 複数バージョンを生成して選択
+```
+
+---
+
+## クイックリファレンス総合表
+
+### モデル選択ガイド
+
+| 目的 | DiTモデル | LMモデル | thinking |
+|------|-----------|----------|----------|
+| 高速プロトタイプ | turbo | 0.6B | False |
+| バランス良好 | turbo | 1.7B | True |
+| 最高品質 | base/sft | 4B | True |
+| 高度なタスク | base | 1.7B+ | True |
+
+### 全タスク対応表
+
+| タスク | Turbo | Base | SFT | 主な用途 |
+|--------|-------|------|-----|----------|
+| text2music | ✅ | ✅ | ✅ | テキストから音楽生成 |
+| cover | ✅ | ✅ | ✅ | カバー/リミックス |
+| repaint | ✅ | ✅ | ✅ | 部分修正/延長 |
+| lego | ❌ | ✅ | ❌ | トラック追加 |
+| extract | ❌ | ✅ | ❌ | トラック抽出 |
+| complete | ❌ | ✅ | ❌ | 伴奏追加 |
+
+### パラメータ推奨値サマリー
+
+| パラメータ | Turbo推奨 | Base推奨 | 範囲 |
+|-----------|--------|--------|------|
+| `inference_steps` | **8** | **60** | 1-200 |
+| `guidance_scale` | **3.0** | **7.0** | 0.0-20.0 |
+| `lm_temperature` | 0.85 | 0.85 | 0.0-2.0 |
+| `lm_cfg_scale` | 2.5 | 2.5 | 1.0-5.0 |
+| `audio_cover_strength` | 用途による | 用途による | 0.0-1.0 |
+| `batch_size` | 2-4 | 2-4 | 1-8 |
+
+> ⚠️ **注意**: パラメータ名は `inference_steps` です（`infer_step` ではありません）
+
+---
+
+## ✅ Standalone Webアプリ開発で判明した追加Tips
+
+### CORS対応
+
+Webアプリから直接ACE-Step APIの音声ファイルにアクセスすると、CORSエラーが発生します。
+
+**解決策**: バックエンドでプロキシAPIを実装
+
+```python
+@router.get("/api/audio")
+async def proxy_audio(path: str):
+    audio_url = f"{ACE_STEP_API_URL}/v1/audio?path={path}"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(audio_url)
+        return StreamingResponse(iter([response.content]), media_type="audio/mpeg")
+```
+
+### Turboモデル自動検出
+
+サーバー情報から使用中のモデルを確認し、Turboの場合は自動的にSTEP=8に調整：
+
+```javascript
+async function loadServerInfo() {
+    const modelResult = await fetch('/api/models');
+    const data = await modelResult.json();
+    if (data.default_model?.includes('turbo')) {
+        document.getElementById('inference_steps').value = 8;
+    }
+}
+```
+
+### 拍子の拡張
+
+標準の `2`, `3`, `4`, `6` に加えて、表示用に分数形式を使用：
+
+| API値 | 表示 | 説明 |
+|-------|------|------|
+| `2` | 2/4 または 2/2 | |
+| `3` | 3/4 | ワルツ |
+| `4` | 4/4 | 標準 |
+| `6` | 6/8 | 複合拍子 |
+
+---
+
+*このドキュメントは ACE-Step 1.5 API の実践的な使用ガイドです。*
+*詳細なAPIリファレンスは [ACE_STEP_API_DOCUMENTATION.md](ACE_STEP_API_DOCUMENTATION.md) を参照してください。*
+*Standalone Webアプリは [../README.md](../README.md) を参照してください。*
+
+---
+
