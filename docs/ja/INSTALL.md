@@ -26,6 +26,16 @@ cd ACE-Step-1.5-fast
 - `./setup.sh --no-models`: 環境だけ作る(チェックポイントは初回起動時に自動取得される)。
 - 何度実行しても安全(取得済みのモデルは飛ばす)。
 
+## Windows(未検証)
+
+```bat
+setup.bat
+run_api_server_fast.bat
+close_api_server.bat 8001
+```
+
+Python 3.11 が必要(flash-attn の Windows 用 wheel の都合。uv が自動で用意する)。torch は 2.7.1+cu128。環境変数は `set ACESTEP_GPU_PROFILE=large` のように起動前に設定する。`PYTORCH_ALLOC_CONF` は Windows では付けていない。
+
 ## 手で行う場合
 
 ```bash

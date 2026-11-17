@@ -31,6 +31,7 @@
 ```
 
 Linux x86_64 + NVIDIA(CUDA 12.8)向け。`--large` で LM 4B も取得、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
+Windows には `setup.bat` / `run_api_server_fast.bat` / `close_api_server.bat` を同じ既定値で用意していますが、**Windows では未検証**です(Python 3.11 と torch 2.7.1+cu128、flash-attn のビルド済み wheel を使用)。
 
 ## 起動
 

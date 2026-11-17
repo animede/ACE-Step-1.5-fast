@@ -26,6 +26,16 @@ Open `http://localhost:8001/ui/` for the evaluation UI; the REST API is on `http
 - `./setup.sh --no-models` builds the environment only (models are fetched on first start).
 - Safe to re-run; existing models are skipped.
 
+## Windows (not yet verified)
+
+```bat
+setup.bat
+run_api_server_fast.bat
+close_api_server.bat 8001
+```
+
+Python 3.11 is required (the prebuilt flash-attn wheel for Windows is cp311; uv provisions it). torch is 2.7.1+cu128. Override settings with `set ACESTEP_GPU_PROFILE=large` before launching. `PYTORCH_ALLOC_CONF` is not set on Windows.
+
 ## Manual steps
 
 ```bash
