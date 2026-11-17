@@ -22,10 +22,8 @@ class RouteSetupTests(unittest.TestCase):
     @patch("acestep.api.route_setup.register_lora_routes")
     @patch("acestep.api.route_setup.register_sample_format_routes")
     @patch("acestep.api.route_setup.register_model_service_routes")
-    @patch("acestep.api.route_setup.create_openrouter_router")
     def test_configure_api_routes_registers_all_routes_and_middleware(
         self,
-        mock_create_openrouter_router,
         mock_register_model_service_routes,
         mock_register_sample_format_routes,
         mock_register_lora_routes,
@@ -35,11 +33,9 @@ class RouteSetupTests(unittest.TestCase):
         mock_register_release_task_route,
         mock_register_query_result_route,
     ) -> None:
-        """Setup should add CORS, include router, and invoke all route registrars once."""
+        """Setup should add CORS and invoke all route registrars once."""
 
         app = FastAPI()
-        router = APIRouter()
-        mock_create_openrouter_router.return_value = router
 
         configure_api_routes(
             app=app,
@@ -78,7 +74,6 @@ class RouteSetupTests(unittest.TestCase):
         )
 
         self.assertTrue(any(m.cls is CORSMiddleware for m in app.user_middleware))
-        mock_create_openrouter_router.assert_called_once()
         mock_register_model_service_routes.assert_called_once()
         mock_register_sample_format_routes.assert_called_once()
         mock_register_lora_routes.assert_called_once()

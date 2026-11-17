@@ -95,7 +95,6 @@ torchaudio = [
 [project.scripts]
 acestep-api = "acestep.api_server:main"
 acestep-download = "acestep.model_downloader:main"
-acestep-openrouter = "openrouter.openrouter_api_server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -105,5 +104,5 @@ build-backend = "hatchling.build"
 dev = []
 
 [tool.hatch.build.targets.wheel]
-packages = ["acestep", "openrouter"]
+packages = ["acestep"]
 

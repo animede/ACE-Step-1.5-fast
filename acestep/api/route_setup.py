@@ -18,7 +18,6 @@ from acestep.api.http.reinitialize_route import register_reinitialize_route
 from acestep.api.http.release_task_route import register_release_task_route
 from acestep.api.http.sample_format_routes import register_sample_format_routes
 from acestep.api.train_api_service import register_training_api_routes
-from acestep.openrouter_adapter import create_openrouter_router
 
 
 def configure_api_routes(
@@ -68,8 +67,6 @@ def configure_api_routes(
         allow_headers=["Content-Type", "Authorization"],
     )
 
-    openrouter_router = create_openrouter_router(lambda: app.state)
-    app.include_router(openrouter_router)
 
     register_model_service_routes(
         app=app,
