@@ -130,7 +130,23 @@ cd ACE-Step-1.5-fast
 
 ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_easy_music.sh 8890`。
 
-- 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`easy-music/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
+- 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
+
+**LLM の指定方法**(起動引数 > `easy-music/.env` > 既定値 `http://localhost:11434/v1` の順に優先):
+
+```bash
+./run_easy_music.sh 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
+```
+
+ホストとポートを分けるなら `--llm-host LLM_HOST --llm-port 11434`。恒久的に設定するなら `easy-music/.env` に次を書きます(認証不要のサーバなら `OPENAI_API_KEY` はダミーのまま)。
+
+```
+OPENAI_BASE_URL=http://LLM_HOST:11434/v1
+OPENAI_API_KEY=YOUR_KEY
+OPENAI_CHAT_MODEL=gemma3:latest
+```
+
+同じ要領で、ACE サーバは `--ace-url` / `ACE_STEP_API_URL`、背景画像サーバは `--img-url` / `IMAGE_GENERATION_URL` で指定できます。Windows は `run_easy_music.bat 8888 --llm-url ...`。
 - 背景画像は任意で、`IMAGE_GENERATION_URL` に画像生成サーバを指定したときだけ使われます(無ければ曲の生成はそのまま動きます)。
 - 使い方の詳細は [easy-music/README.md](easy-music/README.md)。同梱版は開発元の main を `git subtree` で取り込んだもので、`git subtree pull --prefix=easy-music https://github.com/animede/easy_music.git main` で追従できます。
 
