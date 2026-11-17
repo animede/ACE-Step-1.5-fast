@@ -1201,5 +1201,4 @@ class GenerationResult:
 For more information, see:
 - Main README: [`../../README.md`](../../README.md)
 - REST API Documentation: [`API.md`](API.md)
-- Gradio Demo Guide: [`GRADIO_GUIDE.md`](GRADIO_GUIDE.md)
 - Project repository: [ACE-Step-1.5](https://github.com/yourusername/ACE-Step-1.5)

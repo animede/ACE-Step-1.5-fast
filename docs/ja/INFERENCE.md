@@ -735,5 +735,4 @@ caption="速い遅い音楽"  # テンポの矛盾
 詳細については以下を参照：
 - メインREADME：[`../../README.md`](../../README.md)
 - REST APIドキュメント：[`API.md`](API.md)
-- Gradioデモガイド：[`GRADIO_GUIDE.md`](GRADIO_GUIDE.md)
 - プロジェクトリポジトリ：[ACE-Step-1.5](https://github.com/yourusername/ACE-Step-1.5)
