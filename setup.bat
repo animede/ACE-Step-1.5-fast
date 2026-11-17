@@ -19,10 +19,18 @@ goto args
 echo [1/4] uv
 where uv >nul 2>nul
 if errorlevel 1 (
-    powershell -ExecutionPolicy ByPass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    where winget >nul 2>nul
+    if not errorlevel 1 (
+        echo installing uv with winget...
+        winget install --id astral-sh.uv -e --accept-source-agreements --accept-package-agreements
+        set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%"
+    ) else (
+        echo winget not found; installing uv with the official PowerShell installer...
+        powershell -ExecutionPolicy ByPass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    )
     set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 )
-uv --version || exit /b 1
+uv --version || (echo uv is not on PATH yet: open a new command prompt and run setup.bat again. & exit /b 1)
 
 echo [2/4] Python environment (.venv, from uv.lock; Python 3.11 is required by the flash-attn wheel)
 uv sync --frozen --python 3.11 || exit /b 1
