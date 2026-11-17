@@ -99,6 +99,11 @@ CUDA_VISIBLE_DEVICES=1 ./run_api_server_fast.sh      # 複数 GPU の機械で 2
 ./close_api_server.sh --port 8001                    # 停止
 ```
 
+起動後に開くもの:
+
+- **評価用 Web UI(Gradio の代わり)**: `http://localhost:8001/ui/`。API サーバが配信するので別の起動コマンドはなく、サーバが立ち上がれば使える。Windows も同じ。
+- **Easy Music(本格的な Web アプリ)**: 別ターミナルで `./run_easy_music.sh`(Windows は `run_easy_music.bat`)を実行して `http://localhost:8888`。詳細は下の[同梱アプリ](#同梱アプリ-easy-musiceasy-music)。
+
 GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_DEVICES=1` のあと `run_api_server_fast.bat`)。指定した GPU がそのプロセスの 0 番になるので、VRAM 量によるプロファイルの自動判定もその GPU で行われる。`ACESTEP_DEVICE=cuda:1` のような指定は、VRAM 判定が 0 番を見るため使わない。
 
 起動スクリプトはこの 1 本で、すべて環境変数で上書きできます(例: `ACESTEP_API_PORT=8002`、`ACESTEP_QUEUE_WORKERS=2`、`ACESTEP_CONFIG_PATH2=acestep-v15-base`)。
