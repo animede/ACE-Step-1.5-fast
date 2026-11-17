@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACE-Step-1.5-fast 評価 UI</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ACE-Step-1.5-fast <span class="sub">評価 UI(API サーバ経由)</span></h1>
+  <div class="server">
+    <label>サーバ <input id="base" type="text" size="28"></label>
+    <button id="btn-health" type="button">状態</button>
+    <button id="btn-stats" type="button">統計</button>
+    <span id="server-status" class="status">未確認</span>
+  </div>
+</header>
+
+<main>
+<section class="panel form">
+  <h2>生成</h2>
+  <div class="row">
+    <label>タスク
+      <select id="task_type">
+        <option value="text2music">text2music(通常生成)</option>
+        <option value="cover">cover(カバー / スタイル転写)</option>
+        <option value="repaint">repaint(区間の描き直し)</option>
+        <option value="lego">lego</option>
+        <option value="extract">extract</option>
+        <option value="complete">complete</option>
+      </select>
+    </label>
+    <label>モデル <select id="model"></select> <input id="model_custom" type="text" placeholder="手入力(任意)" size="22"></label>
+  </div>
+
+  <label>キャプション(曲の説明)<textarea id="prompt" rows="3"></textarea></label>
+  <label>歌詞<textarea id="lyrics" rows="8"></textarea></label>
+  <div class="row">
+    <label><input id="instrumental" type="checkbox"> インスト(歌詞を [Instrumental] に)</label>
+    <label>言語
+      <select id="vocal_language">
+        <option value="unknown">自動</option><option value="ja">ja</option><option value="en">en</option>
+        <option value="zh">zh</option><option value="ko">ko</option><option value="es">es</option><option value="fr">fr</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label>BPM <input id="bpm" type="number" min="30" max="300" placeholder="自動"></label>
+    <label>キー <input id="key_scale" type="text" placeholder="例: C Major / Am" size="12"></label>
+    <label>拍子 <select id="time_signature"><option value="">自動</option><option>4</option><option>3</option><option>2</option><option>6</option></select></label>
+    <label>長さ(秒) <input id="audio_duration" type="number" min="10" max="600" value="60"></label>
+  </div>
+  <div class="row">
+    <label>step <input id="inference_steps" type="number" min="1" max="200" value="32"></label>
+    <label>guidance <input id="guidance_scale" type="number" step="0.5" value="7"></label>
+    <label>shift <input id="shift" type="number" step="0.5" value="3"></label>
+    <label>方式 <select id="infer_method"><option value="ode">ode</option><option value="sde">sde</option></select></label>
+  </div>
+  <div class="row">
+    <label><input id="use_random_seed" type="checkbox" checked> ランダム seed</label>
+    <label>seed <input id="seed" type="text" value="-1" size="14"></label>
+    <label>本数 <input id="batch_size" type="number" min="1" max="8" value="1"></label>
+    <label>形式 <select id="audio_format"><option>mp3</option><option>wav</option><option>flac</option></select></label>
+  </div>
+
+  <details>
+    <summary>LM(思考 / CoT)</summary>
+    <div class="row">
+      <label><input id="thinking" type="checkbox"> thinking(LM で音声コードを作る)</label>
+      <label><input id="use_cot_caption" type="checkbox" checked> CoT でキャプション補完</label>
+      <label><input id="use_cot_language" type="checkbox" checked> CoT で言語判定</label>
+      <label><input id="use_format" type="checkbox"> LM で入力を整える</label>
+    </div>
+    <div class="row">
+      <label>temperature <input id="lm_temperature" type="number" step="0.05" value="0.85"></label>
+      <label>cfg <input id="lm_cfg_scale" type="number" step="0.1" value="2.5"></label>
+      <label>top_k <input id="lm_top_k" type="number" placeholder="なし"></label>
+      <label>top_p <input id="lm_top_p" type="number" step="0.05" value="0.9"></label>
+      <label>rep. penalty <input id="lm_repetition_penalty" type="number" step="0.05" value="1.0"></label>
+    </div>
+  </details>
+
+  <details id="audio-tasks">
+    <summary>参照音声 / 元音声(cover・repaint 等)</summary>
+    <div class="row">
+      <label>参照音声(スタイル) <input id="reference_audio" type="file" accept="audio/*"></label>
+      <label>元音声(repaint / cover) <input id="src_audio" type="file" accept="audio/*"></label>
+    </div>
+    <div class="row">
+      <label>repaint 開始(秒) <input id="repainting_start" type="number" value="0"></label>
+      <label>repaint 終了(秒、-1 で末尾) <input id="repainting_end" type="number" value="-1"></label>
+      <label>cover 強度 <input id="audio_cover_strength" type="number" step="0.05" min="0" max="1" value="1"></label>
+    </div>
+    <label>指示文(instruction、空なら自動)<input id="instruction" type="text"></label>
+  </details>
+
+  <details>
+    <summary>詳細(拡散)</summary>
+    <div class="row">
+      <label>timesteps(カンマ区切り) <input id="timesteps" type="text" size="40"></label>
+      <label><input id="use_adg" type="checkbox"> ADG</label>
+      <label>CFG 区間 <input id="cfg_interval_start" type="number" step="0.05" value="0" size="4"> 〜 <input id="cfg_interval_end" type="number" step="0.05" value="1" size="4"></label>
+    </div>
+    <label>audio_code_string<textarea id="audio_code_string" rows="2"></textarea></label>
+  </details>
+
+  <details>
+    <summary>簡易モード(説明から LM が曲を考える)</summary>
+    <label>説明<textarea id="sample_query" rows="2" placeholder="例: 切ない日本語のバラード"></textarea></label>
+    <div class="row">
+      <button id="btn-random" type="button">ランダムに作る → フォームへ</button>
+      <button id="btn-format" type="button">今の入力を LM で整える → フォームへ</button>
+      <button id="btn-sample-generate" type="button">簡易モードで生成</button>
+    </div>
+  </details>
+
+  <div class="row actions">
+    <button id="btn-generate" type="button" class="primary">生成</button>
+    <span id="job-status" class="status"></span>
+  </div>
+</section>
+
+<section class="panel results">
+  <h2>結果 <button id="btn-clear" type="button" class="small">履歴を消す</button></h2>
+  <div id="results"></div>
+</section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

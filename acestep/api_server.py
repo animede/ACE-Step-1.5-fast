@@ -37,6 +37,7 @@ from acestep.api.train_api_service import (
 from acestep.api.jobs.store import _JobStore
 from acestep.api.log_capture import install_log_capture
 from acestep.api.route_setup import configure_api_routes
+from acestep.api.webui_static import mount_webui
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
 from acestep.api.job_blocking_generation import run_blocking_generate
@@ -350,6 +351,7 @@ def create_app() -> FastAPI:
         runtime_append_jsonl=_runtime_append_jsonl,
         create_sample=create_sample,
     )
+    mount_webui(app, _get_project_root())  # static HTML/JS evaluation UI at /ui
 
     return app
 

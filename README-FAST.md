@@ -15,6 +15,11 @@ ACE-Step 1.5 のフォーク。**16GB 級 GPU(RTX A4000)で XL(4B)モデルを�
 実測(A4000、XL-SFT、300 秒 1 曲、32 step、mp3・CoT あり): 84 秒 → 62〜65 秒。記録と注意点は
 `docs/ja/低VRAM_XL_プローブ_20261116.md`。
 
+## 評価用 Web UI(Gradio 不要)
+
+サーバ起動後に `http://<host>:<port>/ui/` を開く。`webui/`(HTML + JS)を API サーバが配信し、`/release_task` 等の REST API だけで動く。
+モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint・簡易モード、LM の設定、結果の再生と履歴(seed の再利用)ができる。
+
 ## 起動
 
 ```bash
