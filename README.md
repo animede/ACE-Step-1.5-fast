@@ -189,7 +189,17 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
-- 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。8GB 以下は未確認。
+- 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。
+- **8GB で動かす場合(未確認)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。計算上は次の指定で 6.5〜7.3GB まで下がる。実機では未確認で、8GB カードは表示用に 0.5〜1GB 取られるので余裕は 1GB 前後。短い曲(60〜120 秒)向け。
+
+  ```bash
+  ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ./run_api_server_fast.sh
+  ```
+
+  - `ACESTEP_LM_OFFLOAD_TO_CPU=1`: LM(CoT)を拡散の前だけ GPU に置く。ピークは LM の段と拡散の段の大きい方になり、拡散の段は約 7.3GB。CoT を使わないなら `ACESTEP_INIT_LLM=0` で LM 自体を読まない。
+  - `ACESTEP_RESIDENT_COMPONENTS=`(空): VAE も要求時だけ GPU へ(−0.3GB、1 曲あたり +1 秒程度)。
+  - `ACESTEP_VAE_DECODE_CHUNK_SIZE=128`: decode のピークを −0.5GB(decode が約 2 秒遅くなる)。
+  - それでも足りなければ `ACESTEP_QUANTIZATION=int8_weight_only`(2B の重み 4.8 → 2.4GB。速くはならず、音も bf16 と少し変わる)。
 
 ## 文書
 
