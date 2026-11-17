@@ -5,7 +5,7 @@
 #   ./setup.sh            # 16gb profile set: xl-sft, xl-turbo, 2B turbo, LM 0.6B (+ vae, text encoder)  ~45 GB
 #   ./setup.sh --large    # also LM 4B (ACESTEP_GPU_PROFILE=large)                                        ~53 GB
 #   ./setup.sh --no-models   # environment only
-#   ./setup.sh --no-client   # skip the client-pro web app environment (client-pro/.venv)
+#   ./setup.sh --no-client   # skip the Easy Music web app environment (easy-music/.venv)
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
@@ -60,17 +60,17 @@ else
 fi
 
 if [[ "$WANT_CLIENT" == "1" ]]; then
-	echo "[5/5] client-pro web app environment (client-pro/.venv)"
-	[[ -d client-pro/.venv ]] || uv venv client-pro/.venv --python 3.11 -q
-	uv pip install --python client-pro/.venv/bin/python -q -r <(grep -v "llama-cpp-python" client-pro/requirements.txt)
+	echo "[5/5] Easy Music web app environment (easy-music/.venv)"
+	[[ -d easy-music/.venv ]] || uv venv easy-music/.venv --python 3.11 -q
+	uv pip install --python easy-music/.venv/bin/python -q -r <(grep -v "llama-cpp-python" easy-music/requirements.txt)
 	# CPU-only prebuilt wheel for the GGUF lyrics fallback (no compiler needed); optional
-	uv pip install --python client-pro/.venv/bin/python -q "llama-cpp-python>=0.3.0" \
+	uv pip install --python easy-music/.venv/bin/python -q "llama-cpp-python>=0.3.0" \
 		--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
 		|| echo "  llama-cpp-python not installed: the client will use the external LLM only"
 else
-	echo "[5/5] client-pro environment: skipped (--no-client)"
+	echo "[5/5] Easy Music environment: skipped (--no-client)"
 fi
 
 echo
 echo "Done. Start the server with:  ./run_api_server_fast.sh   (then open http://localhost:8001/ui/)"
-echo "      and the web app with:   ./run_client_pro.sh        (http://localhost:8888)"
+echo "      and the web app with:   ./run_easy_music.sh        (http://localhost:8888)"

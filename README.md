@@ -19,6 +19,7 @@
 | 同時実行 | LM(CoT)の呼び出しを直列化(オリジナルは同時実行で CUDA が壊れる)。別モデルへの切替は実行中のジョブを待ってから |
 | モデル管理 API | `GET /v1/residency`、`POST /v1/residency/activate`(事前切替)、`POST /v1/init` の排他常駐対応(slot の入れ替え) |
 | Web UI | `webui/`(HTML + JS)。生成・cover・repaint・簡易モード・LM 設定・結果の再生と履歴・モデル管理 |
+| 同梱アプリ | `easy-music/`: ワンクリック生成の Web アプリ Easy Music(別プロセス、`./run_easy_music.sh`) |
 | 実装済みだが既定 OFF | `ACESTEP_DIT_FUSIONS`(attention / MLP / adaLN の eager 融合、効果 ≤3%)、`ACESTEP_QUANTIZATION=int8_plain` |
 
 実測と注意点はすべて [docs/ja/低VRAM_XL_プローブ_20261116.md](docs/ja/低VRAM_XL_プローブ_20261116.md) に記録しています。
@@ -46,10 +47,10 @@ cd ACE-Step-1.5-fast
 
 ```bash
 cd ACE-Step-1.5-fast
-./run_client_pro.sh 8888
+./run_easy_music.sh 8888
 ```
 
-- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `./run_client_pro.sh 8890`)。停止は `./close_api_server.sh --port 8001`。
+- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `./run_easy_music.sh 8890`)。停止は `./close_api_server.sh --port 8001`。
 - `./setup.sh` が uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得(約 45GB、取得済みは飛ばす)を行う。`--large` で LM 4B も、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
 
 ### Windows の場合
@@ -74,10 +75,10 @@ run_api_server_fast.bat
 
 ```bat
 cd ACE-Step-1.5-fast
-run_client_pro.bat 8888
+run_easy_music.bat 8888
 ```
 
-- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_client_pro.bat 8890`)。停止は `close_api_server.bat`。
+- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_easy_music.bat 8890`)。停止は `close_api_server.bat`。
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトで `setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください。
@@ -105,12 +106,13 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 追加した `GET /v1/residency` と `POST /v1/residency/activate`(GPU 上のモデルの確認と事前切替)、外した `/v1/chat/completions`(OpenRouter 向け)、`model` と `seed` の注意点は [docs/ja/API.md の 12 節](docs/ja/API.md#12-このフォークace-step-15-fastでの追加と互換性) にまとめています。
 この契約は単体テスト(`acestep/api/api_contract_test.py`)で守っています。
 
-### 同梱アプリ: ACE-Step-client-pro(`client-pro/`)
+### 同梱アプリ: Easy Music(`easy-music/`)
 
-この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。
+この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888)。ジャンルを選んでワンクリックで曲を作る「簡単モード」、AI 作詞、ムード・ボーカルの指定、STEP 選択、インラインプレーヤー、履歴、背景画像の自動生成(別の画像生成サーバがある場合)、日英切替。開発元は [animede/easy_music](https://github.com/animede/easy_music)(MIT)。
 
-![ACE-Step-client-pro の起動画面](client-pro/startupUI.png)
-`./setup.sh` が専用の環境(`client-pro/.venv`)も作るので、起動は次の 2 つです。
+![Easy Music の起動画面](easy-music/startupUI.png)
+
+`./setup.sh` が専用の環境(`easy-music/.venv`)も作ります。
 
 ターミナル 1(API サーバ、起動したまま):
 
@@ -123,14 +125,14 @@ cd ACE-Step-1.5-fast
 
 ```bash
 cd ACE-Step-1.5-fast
-./run_client_pro.sh 8888
+./run_easy_music.sh 8888
 ```
 
-ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_client_pro.sh 8890`。
+ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_easy_music.sh 8890`。
 
-- 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`client-pro/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
-- アプリは `model` を送らないので生成は常に primary(xl-sft)です。turbo は `/ui/` から使えます。
-- 使い方の詳細は [client-pro/README.md](client-pro/README.md)。**ライセンスに注意**: `client-pro/` は PolyForm Noncommercial 1.0.0([client-pro/LICENSE](client-pro/LICENSE))で、それ以外(サーバ本体)は MIT です。
+- 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`easy-music/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
+- 背景画像は任意で、`IMAGE_GENERATION_URL` に画像生成サーバを指定したときだけ使われます(無ければ曲の生成はそのまま動きます)。
+- 使い方の詳細は [easy-music/README.md](easy-music/README.md)。同梱版は開発元の main を `git subtree` で取り込んだもので、`git subtree pull --prefix=easy-music https://github.com/animede/easy_music.git main` で追従できます。
 
 ## モデル
 
@@ -160,7 +162,7 @@ Junmin Gong、Yulin Song、Wenxiao Zhao、Sen Wang、Shengyuan Xu、Jing Guo を
 
 ## ライセンスと引用
 
-コードは [MIT](./LICENSE)(オリジナルと同じ)。ただし同梱の `client-pro/` は PolyForm Noncommercial 1.0.0(非商用)です。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
+コードは [MIT](./LICENSE)(オリジナルと同じ)。同梱の Easy Music(`easy-music/`)も MIT です。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
 
 ```BibTeX
 @misc{gong2026acestep,

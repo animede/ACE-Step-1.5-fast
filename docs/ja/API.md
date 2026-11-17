@@ -753,7 +753,7 @@ APIサーバーは環境変数で設定できます：
 
 外部アプリから「音楽生成 API」として使うための契約は、オリジナルの ACE-Step 1.5 と同じです。
 上の 1〜11 の仕様(`/release_task` → `/query_result` → `/v1/audio`、`/format_input`、`/create_random_sample`、`/v1/models`、`/v1/stats`、`/health`、`/v1/init`)は
-リクエスト・レスポンスの形を変えていません。参考実装は [ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro)(別プロセスの Web アプリ、`ACE_STEP_API_URL` でこのサーバを指す)。
+リクエスト・レスポンスの形を変えていません。参考実装は同梱の Easy Music(`easy-music/`、開発元 [animede/easy_music](https://github.com/animede/easy_music)。別プロセスの Web アプリで、`ACE_STEP_API_URL` でこのサーバを指す)。
 
 ### 12.1 変わらないこと
 

@@ -47,13 +47,13 @@ if "%WANT_MODELS%"=="1" (
 ) else (
     echo [4/4] checkpoints: skipped
 )
-echo [5/5] client-pro web app environment (client-pro\.venv)
-if not exist "client-pro\.venv" uv venv client-pro\.venv --python 3.11 -q
-findstr /v /i "llama-cpp-python" client-pro\requirements.txt > client-pro\requirements.base.tmp
-uv pip install --python client-pro\.venv\Scripts\python.exe -q -r client-pro\requirements.base.tmp
-del client-pro\requirements.base.tmp
-uv pip install --python client-pro\.venv\Scripts\python.exe -q "llama-cpp-python>=0.3.0" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || echo   llama-cpp-python not installed: the client will use the external LLM only
+echo [5/5] Easy Music web app environment (easy-music\.venv)
+if not exist "easy-music\.venv" uv venv easy-music\.venv --python 3.11 -q
+findstr /v /i "llama-cpp-python" easy-music\requirements.txt > easy-music\requirements.base.tmp
+uv pip install --python easy-music\.venv\Scripts\python.exe -q -r easy-music\requirements.base.tmp
+del easy-music\requirements.base.tmp
+uv pip install --python easy-music\.venv\Scripts\python.exe -q "llama-cpp-python>=0.3.0" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || echo   llama-cpp-python not installed: the client will use the external LLM only
 echo.
 echo Done. Start the server with:  run_api_server_fast.bat   (then open http://localhost:8001/ui/)
-echo       and the web app with:   run_client_pro.bat        (http://localhost:8888)
+echo       and the web app with:   run_easy_music.bat        (http://localhost:8888)
 endlocal

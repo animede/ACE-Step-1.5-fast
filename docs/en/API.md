@@ -877,7 +877,7 @@ curl -X POST http://localhost:8001/v1/training/start_lokr \
 
 The contract for using this server as a music generation API from external applications is the same as the original ACE-Step 1.5:
 sections 1-11 above (`/release_task` -> `/query_result` -> `/v1/audio`, `/format_input`, `/create_random_sample`, `/v1/models`, `/v1/stats`, `/health`, `/v1/init`)
-keep their request and response shapes. Reference application: [ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro) (a separate web app that points `ACE_STEP_API_URL` at this server).
+keep their request and response shapes. Reference application: the bundled Easy Music (`easy-music/`, from [animede/easy_music](https://github.com/animede/easy_music)), a separate web app that points `ACE_STEP_API_URL` at this server.
 
 ### 12.1 Unchanged
 

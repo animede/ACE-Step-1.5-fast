@@ -258,7 +258,7 @@ ACE_STEP_API_URL=http://localhost:8001
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=YOUR_KEY
 OPENAI_CHAT_MODEL=gemma3:latest
-IMAGE_GENERATION_URL=http://192.168.5.73:64656
+IMAGE_GENERATION_URL=http://localhost:64656
 HOST=0.0.0.0
 PORT=8889
 ```
@@ -267,7 +267,7 @@ PORT=8889
 
 The background artwork feature uses an image generation server that provides `POST /generate/`.
 
-- Default URL: `http://192.168.5.73:64656`
+- Default URL: `http://localhost:64656`
 - CLI options:
 	- `--img-url http://HOST:64656`
 	- `--img-host HOST`
