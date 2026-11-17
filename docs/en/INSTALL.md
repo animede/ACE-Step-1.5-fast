@@ -26,15 +26,16 @@ Open `http://localhost:8001/ui/` for the evaluation UI; the REST API is on `http
 - `./setup.sh --no-models` builds the environment only (models are fetched on first start).
 - Safe to re-run; existing models are skipped.
 
-## Windows (not yet verified)
+## Windows
 
-```bat
-setup.bat
-run_api_server_fast.bat
-close_api_server.bat 8001
-```
+Prerequisites: Windows 10 / 11 (64-bit), an NVIDIA driver supporting CUDA 12.8, 32 GB RAM, 80 GB disk. No Python, CUDA Toolkit or Visual Studio needed (uv provisions Python 3.11; torch 2.7.1+cu128 and flash-attn come as prebuilt wheels).
 
-Python 3.11 is required (the prebuilt flash-attn wheel for Windows is cp311; uv provisions it). torch is 2.7.1+cu128. Override settings with `set ACESTEP_GPU_PROFILE=large` before launching. `PYTORCH_ALLOC_CONF` is not set on Windows.
+1. Get the repository: `git clone https://github.com/animede/ACE-Step-1.5-fast.git`, or download the ZIP from GitHub ("Code -> Download ZIP") and extract it.
+2. Run `setup.bat` in that folder (`--large` also fetches the 4B LM, `--no-models` builds the environment only). Safe to re-run.
+3. Run `run_api_server_fast.bat` and open `http://localhost:8001/ui/`. Stop with `close_api_server.bat` (`close_api_server.bat 8002` for another port).
+
+Override settings before launching, e.g. `set ACESTEP_GPU_PROFILE=large` (same variables as 起動コマンド.md). `PYTORCH_ALLOC_CONF` is not set on Windows.
+The Windows scripts have not been exercised on a real machine yet; please open an issue if something fails.
 
 ## Manual steps
 
