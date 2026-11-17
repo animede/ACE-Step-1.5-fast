@@ -38,13 +38,12 @@ XL を使うには `acestep-v15-xl-sft` / `acestep-v15-xl-turbo`(各 19GB)が必
 ## 起動
 
 ```bash
-./run_api_server_fast.sh         # 16GB 向けの標準: XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
-./run_api_server_multimodel.sh   # 複数 DiT を同時常駐(48GB 級向け)。高速化の環境変数は手で付ける
-./start_api_server.sh            # オリジナルの起動スクリプト(.env と自動更新の確認つき)
+./run_api_server_fast.sh                             # 16GB 級(既定): XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
+ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも GPU に常駐、LM 4B、退避なし
+./close_api_server.sh --port 8001                    # 停止
 ```
 
-`run_api_server_fast.sh` は環境変数で上書きできます(例: `ACESTEP_API_PORT=8002`、`ACESTEP_QUEUE_WORKERS=2`、`ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B`)。
-48GB 級の GPU で multimodel を使うときは `ACESTEP_FUSED_RMSNORM=exact ACESTEP_OFFLOAD_TO_CPU=0 ACESTEP_LM_OFFLOAD_TO_CPU=0 ACESTEP_VAE_DECODE_CHUNK_SIZE=512` を付けると速くなります。
+起動スクリプトはこの 1 本で、すべて環境変数で上書きできます(例: `ACESTEP_API_PORT=8002`、`ACESTEP_QUEUE_WORKERS=2`、`ACESTEP_CONFIG_PATH2=acestep-v15-base`)。
 同時実行数とキューの考え方は [運用メモ_同時実行数とキュー.md](運用メモ_同時実行数とキュー.md)、起動コマンドの一覧は [起動コマンド.md](起動コマンド.md)。
 
 ## 使い方

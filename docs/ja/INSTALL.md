@@ -92,7 +92,7 @@ python acestep/api_server.py                     # REST API
 | **Windows** | `start_gradio_ui_rocm.bat` | Gradio Web UI を起動（AMD ROCm） |
 | **Windows** | `start_api_server_rocm.bat` | REST API サーバーを起動（AMD ROCm） |
 | **Linux** | `start_gradio_ui.sh` | Gradio Web UI を起動（CUDA） |
-| **Linux** | `start_api_server.sh` | REST API サーバーを起動（CUDA） |
+| **Linux** | `run_api_server_fast.sh` | REST API サーバーを起動（CUDA） |
 | **macOS** | `start_gradio_ui_macos.sh` | Gradio Web UI を起動（MLX） |
 | **macOS** | `start_api_server_macos.sh` | REST API サーバーを起動（MLX） |
 
@@ -118,13 +118,13 @@ start_api_server_rocm.bat
 
 ```bash
 # 実行権限を付与（初回のみ）
-chmod +x start_gradio_ui.sh start_api_server.sh
+chmod +x run_api_server_fast.sh
 
 # Gradio Web UI を起動
 ./start_gradio_ui.sh
 
 # REST API サーバーを起動
-./start_api_server.sh
+./run_api_server_fast.sh
 ```
 
 > **注意：** Git はシステムのパッケージマネージャーでインストールする必要があります（`sudo apt install git`、`sudo yum install git`、`sudo pacman -S git`）。

@@ -103,7 +103,7 @@ if command -v uv &>/dev/null; then
     log
     log "You can now use ACE-Step by running:"
     log "  ./start_gradio_ui.sh"
-    log "  ./start_api_server.sh"
+    log "  ./run_api_server_fast.sh"
     if [[ "$(uname)" == "Darwin" ]]; then
         log "  ./start_gradio_ui_macos.sh  (Apple Silicon with MLX)"
         log "  ./start_api_server_macos.sh (Apple Silicon with MLX)"

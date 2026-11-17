@@ -93,7 +93,7 @@ Ready-to-use launch scripts for all platforms. These scripts handle environment 
 | **Windows** | `start_gradio_ui_rocm.bat` | Launch Gradio Web UI (AMD ROCm) |
 | **Windows** | `start_api_server_rocm.bat` | Launch REST API Server (AMD ROCm) |
 | **Linux** | `start_gradio_ui.sh` | Launch Gradio Web UI (CUDA) |
-| **Linux** | `start_api_server.sh` | Launch REST API Server (CUDA) |
+| **Linux** | `run_api_server_fast.sh` | Launch REST API Server (CUDA) |
 | **macOS** | `start_gradio_ui_macos.sh` | Launch Gradio Web UI (MLX) |
 | **macOS** | `start_api_server_macos.sh` | Launch REST API Server (MLX) |
 
@@ -119,13 +119,13 @@ start_api_server_rocm.bat
 
 ```bash
 # Make executable (first time only)
-chmod +x start_gradio_ui.sh start_api_server.sh
+chmod +x run_api_server_fast.sh
 
 # Launch Gradio Web UI
 ./start_gradio_ui.sh
 
 # Launch REST API Server
-./start_api_server.sh
+./run_api_server_fast.sh
 ```
 
 > **Note:** Git must be installed via your system package manager (`sudo apt install git`, `sudo yum install git`, `sudo pacman -S git`).
