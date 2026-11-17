@@ -95,8 +95,11 @@ run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:la
 ```bash
 ./run_api_server_fast.sh                             # 16GB 級(既定): XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
 ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも GPU に常駐、LM 4B、退避なし
+CUDA_VISIBLE_DEVICES=1 ./run_api_server_fast.sh      # 複数 GPU の機械で 2 枚目を使う(番号は nvidia-smi -L)
 ./close_api_server.sh --port 8001                    # 停止
 ```
+
+GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_DEVICES=1` のあと `run_api_server_fast.bat`)。指定した GPU がそのプロセスの 0 番になるので、VRAM 量によるプロファイルの自動判定もその GPU で行われる。`ACESTEP_DEVICE=cuda:1` のような指定は、VRAM 判定が 0 番を見るため使わない。
 
 起動スクリプトはこの 1 本で、すべて環境変数で上書きできます(例: `ACESTEP_API_PORT=8002`、`ACESTEP_QUEUE_WORKERS=2`、`ACESTEP_CONFIG_PATH2=acestep-v15-base`)。
 同時実行数とキューの考え方は [運用メモ_同時実行数とキュー.md](運用メモ_同時実行数とキュー.md)、起動コマンドの一覧は [起動コマンド.md](起動コマンド.md)。
