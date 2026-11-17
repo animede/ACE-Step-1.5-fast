@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import asyncio
+import threading
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ class LocalLLMService:
         self._llm = None
         self._available: Optional[bool] = None  # None = 未確認
         self._loading = False
+        # llama.cpp のコンテキストはスレッド安全ではない。同時に 2 本 decode すると
+        # KV キャッシュが壊れて落ちる(set_rows の GGML_ASSERT / segfault)ので、
+        # ロードと推論を 1 本ずつに直列化する。
+        self._lock = threading.Lock()
 
     @property
     def is_available(self) -> bool:
@@ -78,11 +83,16 @@ class LocalLLMService:
         """モデルをロード済みにする。成功なら True"""
         if self._llm is not None:
             return True
-        if self._loading:
-            return False
         if not self.is_available:
             return False
 
+        with self._lock:
+            return self._load_model_locked()
+
+    def _load_model_locked(self) -> bool:
+        """ロック保持中にモデルをロードする(2 本目の呼び出しはロード済みを再利用)"""
+        if self._llm is not None:
+            return True
         self._loading = True
         try:
             model_path = self._download_model()
@@ -140,7 +150,18 @@ class LocalLLMService:
         max_tokens: int,
         temperature: float,
     ) -> str:
-        """同期的に推論を実行"""
+        """同期的に推論を実行(プロセス内で 1 本ずつ)"""
+        with self._lock:
+            return self._generate_locked(user_message, system_prompt, max_tokens, temperature)
+
+    def _generate_locked(
+        self,
+        user_message: str,
+        system_prompt: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        """ロック保持中に llama.cpp を呼ぶ"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
