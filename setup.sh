@@ -4,19 +4,21 @@
 #
 #   ./setup.sh            # 16gb profile set: xl-sft, xl-turbo, 2B turbo, LM 0.6B (+ vae, text encoder)  ~45 GB
 #   ./setup.sh --large    # also LM 4B (ACESTEP_GPU_PROFILE=large)                                        ~53 GB
+#   ./setup.sh --12gb     # 2B only: 2B turbo, 2B base, LM 0.6B (+ main set), no XL (ACESTEP_GPU_PROFILE=12gb) ~15 GB
 #   ./setup.sh --no-models   # environment only
 #   ./setup.sh --no-client   # skip the Easy Music web app environment (easy-music/.venv)
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-WANT_MODELS=1; LARGE=0; WANT_CLIENT=1
+WANT_MODELS=1; LARGE=0; TWELVE=0; WANT_CLIENT=1
 for arg in "$@"; do
 	case "$arg" in
 		--no-models) WANT_MODELS=0 ;;
 		--no-client) WANT_CLIENT=0 ;;
 		--large) LARGE=1 ;;
-		-h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+		--12gb) TWELVE=1 ;;
+		-h|--help) sed -n '2,9p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
@@ -49,8 +51,12 @@ PY
 
 if [[ "$WANT_MODELS" == "1" ]]; then
 	echo "[4/5] checkpoints (skips what already exists)"
-	uv run --no-sync acestep-download --model acestep-v15-xl-sft      # 19 GB (also fetches the main set: vae, text encoder, 2B turbo, LM 1.7B)
-	uv run --no-sync acestep-download --model acestep-v15-xl-turbo    # 19 GB
+	if [[ "$TWELVE" == "1" ]]; then
+		uv run --no-sync acestep-download --model acestep-v15-base    # 4.5 GB (also fetches the main set: vae, text encoder, 2B turbo, LM 1.7B)
+	else
+		uv run --no-sync acestep-download --model acestep-v15-xl-sft      # 19 GB (also fetches the main set: vae, text encoder, 2B turbo, LM 1.7B)
+		uv run --no-sync acestep-download --model acestep-v15-xl-turbo    # 19 GB
+	fi
 	uv run --no-sync acestep-download --model acestep-5Hz-lm-0.6B     # 1.3 GB
 	if [[ "$LARGE" == "1" ]]; then
 		uv run --no-sync acestep-download --model acestep-5Hz-lm-4B   # 7.9 GB

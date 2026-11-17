@@ -6,7 +6,7 @@ Target: Linux x86_64 with an NVIDIA GPU (driver supporting CUDA 12.8). Python 3.
 
 | Item | Guideline |
 |---|---|
-| GPU | 16 GB (RTX A4000 class) runs the XL models; 40 GB+ can keep every model resident (`ACESTEP_GPU_PROFILE=large`) |
+| GPU | 16 GB (RTX A4000 class) runs the XL models; 40 GB+ can keep every model resident (`ACESTEP_GPU_PROFILE=large`); 12 GB (RTX 3060 12 GB etc.) runs the 2B models only (`ACESTEP_GPU_PROFILE=12gb`, peak about 8.5 GB) |
 | Host RAM | 32 GB or more (the 16gb profile keeps ~4 GB resident plus page cache) |
 | Disk | ~8 GB environment, ~45 GB checkpoints (xl-sft 19 / xl-turbo 19 / 2B turbo 4.5 / LM 0.6B 1.3 / VAE + text encoder 1.5), 24 GB swap cache |
 | Network | First run downloads from Hugging Face (ModelScope fallback) |
@@ -23,6 +23,7 @@ cd ACE-Step-1.5-fast
 Open `http://localhost:8001/ui/` for the evaluation UI; the REST API is on `http://localhost:8001` (see [API.md](API.md)).
 
 - `./setup.sh --large` also fetches the 4B LM (for `ACESTEP_GPU_PROFILE=large` on 40 GB+ GPUs).
+- `./setup.sh --12gb` skips the XL models and fetches 2B turbo + 2B base + LM 0.6B only (about 15 GB with the main set's 1.7B LM, for `ACESTEP_GPU_PROFILE=12gb` on 12 GB GPUs).
 - `./setup.sh --no-models` builds the environment only (models are fetched on first start).
 - Safe to re-run; existing models are skipped.
 
@@ -44,7 +45,7 @@ close_api_server.bat
 ```
 
 - Then open `http://localhost:8001/ui/`. Stop another port with `close_api_server.bat 8002`.
-- `setup.bat`: installs uv (winget when available: `winget install --id astral-sh.uv -e`, otherwise the official PowerShell installer), provisions Python 3.11 and `.venv` (`uv sync --frozen`), checks the GPU, downloads the models. `setup.bat --large` also fetches the 4B LM, `setup.bat --no-models` builds the environment only. Safe to re-run; if `uv` is not found right after installing, open a new command prompt and run it again.
+- `setup.bat`: installs uv (winget when available: `winget install --id astral-sh.uv -e`, otherwise the official PowerShell installer), provisions Python 3.11 and `.venv` (`uv sync --frozen`), checks the GPU, downloads the models. `setup.bat --large` also fetches the 4B LM, `setup.bat --12gb` fetches the 2B models only, `setup.bat --no-models` builds the environment only. Safe to re-run; if `uv` is not found right after installing, open a new command prompt and run it again.
 - Without Git: download the ZIP from GitHub ("Code -> Download ZIP"), extract it and continue from `setup.bat` in that folder.
 - Override settings before launching, e.g. `set ACESTEP_GPU_PROFILE=large` (same variables as 起動コマンド.md). `PYTORCH_ALLOC_CONF` is not set on Windows.
 - The Windows scripts have not been exercised on a real machine yet; please open an issue if something fails.

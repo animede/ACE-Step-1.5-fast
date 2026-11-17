@@ -2,6 +2,7 @@
 rem ACE-Step-1.5-fast API server (Windows). Same defaults as run_api_server_fast.sh:
 rem   ACESTEP_GPU_PROFILE=16gb (default): XL-SFT on the GPU, XL-turbo / 2B turbo swapped in from the mmap store
 rem   ACESTEP_GPU_PROFILE=large          : every DiT resident, LM 4B, no offload
+rem   ACESTEP_GPU_PROFILE=12gb           : 2B only (2B turbo on the GPU, 2B base swapped in), no XL
 rem Set any variable before calling this script to override it, e.g.  set ACESTEP_API_PORT=8002
 rem Not yet verified on Windows.
 setlocal
@@ -18,9 +19,15 @@ if /i "%ACESTEP_GPU_PROFILE%"=="large" (
     if not defined ACESTEP_VAE_DECODE_CHUNK_SIZE set ACESTEP_VAE_DECODE_CHUNK_SIZE=1024
 )
 
+if /i "%ACESTEP_GPU_PROFILE%"=="12gb" (
+    if not defined ACESTEP_CONFIG_PATH set ACESTEP_CONFIG_PATH=acestep-v15-turbo
+    if not defined ACESTEP_CONFIG_PATH2 set ACESTEP_CONFIG_PATH2=acestep-v15-base
+    rem no third slot: leave ACESTEP_CONFIG_PATH3 undefined (an unset / empty slot is not loaded)
+    set ACESTEP_NO_THIRD_SLOT=1
+)
 if not defined ACESTEP_CONFIG_PATH set ACESTEP_CONFIG_PATH=acestep-v15-xl-sft
 if not defined ACESTEP_CONFIG_PATH2 set ACESTEP_CONFIG_PATH2=acestep-v15-xl-turbo
-if not defined ACESTEP_CONFIG_PATH3 set ACESTEP_CONFIG_PATH3=acestep-v15-turbo
+if not defined ACESTEP_CONFIG_PATH3 if not defined ACESTEP_NO_THIRD_SLOT set ACESTEP_CONFIG_PATH3=acestep-v15-turbo
 if not defined ACESTEP_DIT_RESIDENCY set ACESTEP_DIT_RESIDENCY=exclusive
 if not defined ACESTEP_DIT_RESIDENCY_STORE set ACESTEP_DIT_RESIDENCY_STORE=mmap
 if not defined ACESTEP_QUANTIZATION set ACESTEP_QUANTIZATION=none

@@ -6,7 +6,7 @@
 
 | 項目 | 目安 |
 |---|---|
-| GPU | 16GB(A4000 級)で XL を実行可。40GB 以上なら `ACESTEP_GPU_PROFILE=large` で全モデル常駐 |
+| GPU | 16GB(A4000 級)で XL を実行可。40GB 以上なら `ACESTEP_GPU_PROFILE=large` で全モデル常駐。12GB(RTX 3060 12GB など)は `ACESTEP_GPU_PROFILE=12gb` で 2B のみ(ピーク約 8.5GB) |
 | ホストメモリ | 32GB 以上(16gb プロファイルの常駐は約 4GB + ページキャッシュ) |
 | ディスク | 環境 約 8GB、チェックポイント 約 45GB(xl-sft 19 / xl-turbo 19 / 2B turbo 4.5 / LM 0.6B 1.3 / VAE・テキストエンコーダ 1.5)、退避用キャッシュ 24GB |
 | ネットワーク | 初回に Hugging Face(失敗時 ModelScope)から取得 |
@@ -23,6 +23,7 @@ cd ACE-Step-1.5-fast
 ブラウザで `http://localhost:8001/ui/` を開けば評価用 UI、API は `http://localhost:8001`(仕様は [API.md](API.md))。
 
 - `./setup.sh --large`: LM 4B も取得(40GB 以上の GPU で `ACESTEP_GPU_PROFILE=large` を使う場合)。
+- `./setup.sh --12gb`: XL を取らず 2B turbo + 2B base + LM 0.6B(基本セットの LM 1.7B 込みで約 15GB。12GB の GPU で `ACESTEP_GPU_PROFILE=12gb` を使う場合)。
 - `./setup.sh --no-models`: 環境だけ作る(チェックポイントは初回起動時に自動取得される)。
 - 何度実行しても安全(取得済みのモデルは飛ばす)。
 
@@ -44,7 +45,7 @@ close_api_server.bat
 ```
 
 - 起動後は `http://localhost:8001/ui/`。別ポートの停止は `close_api_server.bat 8002`。
-- `setup.bat`: uv の導入(winget があれば `winget install --id astral-sh.uv -e`、無ければ公式の PowerShell インストーラ)→ Python 3.11 と `.venv` の作成(`uv sync --frozen`)→ GPU 確認 → モデル取得。`setup.bat --large` で LM 4B も、`setup.bat --no-models` で環境だけ。再実行は安全。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトでもう一度。
+- `setup.bat`: uv の導入(winget があれば `winget install --id astral-sh.uv -e`、無ければ公式の PowerShell インストーラ)→ Python 3.11 と `.venv` の作成(`uv sync --frozen`)→ GPU 確認 → モデル取得。`setup.bat --large` で LM 4B も、`setup.bat --12gb` で 2B だけ、`setup.bat --no-models` で環境だけ。再実行は安全。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトでもう一度。
 - Git を入れない場合は GitHub の「Code → Download ZIP」を展開し、そのフォルダで `setup.bat` 以降を実行。
 - 設定は起動前に `set ACESTEP_GPU_PROFILE=large` のように指定(変数は 起動コマンド.md の表と同じ)。`PYTORCH_ALLOC_CONF` は Windows では付けていない。
 - 実機での動作確認はまだ行っていないので、問題があれば Issue で報告を。

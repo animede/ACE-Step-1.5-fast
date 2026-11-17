@@ -51,7 +51,7 @@ cd ACE-Step-1.5-fast
 ```
 
 - ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `./run_easy_music.sh 8890`)。停止は `./close_api_server.sh --port 8001`。
-- `./setup.sh` が uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得(約 45GB、取得済みは飛ばす)を行う。`--large` で LM 4B も、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
+- `./setup.sh` が uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得(約 45GB、取得済みは飛ばす)を行う。`--large` で LM 4B も、`--12gb` で 2B だけ(約 15GB)、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
 
 ### Windows の場合
 
@@ -95,6 +95,7 @@ run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:la
 ```bash
 ./run_api_server_fast.sh                             # 16GB 級(既定): XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
 ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも GPU に常駐、LM 4B、退避なし
+ACESTEP_GPU_PROFILE=12gb ./run_api_server_fast.sh    # 12GB 級(RTX 3060 12GB など): 2B turbo 常駐 + 2B base を要求時に入れ替え、XL は使わない
 CUDA_VISIBLE_DEVICES=1 ./run_api_server_fast.sh      # 複数 GPU の機械で 2 枚目を使う(番号は nvidia-smi -L)
 ./close_api_server.sh --port 8001                    # 停止
 ```
@@ -176,18 +177,19 @@ OPENAI_CHAT_MODEL=gemma3:latest
 | `acestep-v15-xl-base` | 4B | あり | 50 | 10.0GB | 19GB | XL の extract / lego / complete |
 
 DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 8.4GB(Qwen3 ベース)、テキストエンコーダ `Qwen3-Embedding-0.6B` 1.2GB、VAE 0.3GB。16GB では LM 0.6B、余裕があれば 4B。
-配布元: [Hugging Face ACE-Step](https://huggingface.co/ACE-Step)。`setup.sh` の既定(xl-sft、xl-turbo、turbo、LM 0.6B、TE、VAE)で約 45GB、`--large` で LM 4B が加わり約 53GB。
+配布元: [Hugging Face ACE-Step](https://huggingface.co/ACE-Step)。`setup.sh` の既定(xl-sft、xl-turbo、turbo、LM 0.6B、TE、VAE)で約 45GB、`--large` で LM 4B が加わり約 53GB、`--12gb` は XL を取らず 2B turbo + 2B base(+ LM 1.7B を含む基本セット)で約 15GB。
 
 ### 必要 VRAM の目安(実測は RTX A4000 16GB、RTX PRO 6000 96GB)
 
 | プロファイル | GPU に載るもの | 起動直後 | 生成中のピーク | ホスト側 |
 |---|---|---|---|---|
 | `16gb`(既定) | DiT 1 本(既定 xl-sft)+ VAE + LM 0.6B。TE は要求時だけ GPU へ(同時実行 2 以上では常駐、+1.2GB) | 約 10GB | XL-sft 300 秒 1 本で約 13.6GB、2B turbo 60 秒で約 12GB | サーバ常駐 約 4GB。退避中の DiT は `.cache/acestep/dit_residency/` の bf16 ファイル(XL 10GB、2B 4.8GB、初回起動時に作成、合計約 25GB のディスク)をページキャッシュ経由で読むので、RAM はその分あると切替が約 2 秒、無ければ NVMe から約 7 秒 |
+| `12gb` | 2B turbo(常駐)+ 2B base(要求時に入れ替え)+ VAE + LM 0.6B。XL は読まない | 約 8GB | 2B turbo / base とも 60〜300 秒で約 8.5GB(A4000 で実測、12GB に約 3.5GB の余裕) | 16gb と同じ(退避ファイルは 2B 2 本で約 10GB) |
 | `large` | 3 本の DiT 全部 + VAE + TE + LM 4B、退避なし | 約 35GB(重みの合計からの見込み) | 生成分(300 秒 1 本で 3〜4GB、同時実行数ぶん)が上乗せ。40GB 以上、同時実行 2〜4 なら 48GB 級 | サーバ常駐 約 4GB |
 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
-- 12GB 以下の GPU は対象外(XL の bf16 重みだけで 10GB)。2B のみ(`ACESTEP_CONFIG_PATH=acestep-v15-turbo` に変更、XL を外す)なら動く余地はあるが未確認。
+- 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。8GB 以下は未確認。
 
 ## 文書
 

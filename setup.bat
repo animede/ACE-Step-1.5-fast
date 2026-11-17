@@ -2,16 +2,19 @@
 rem ACE-Step-1.5-fast setup for Windows: uv -> .venv (uv.lock) -> GPU check -> checkpoints.
 rem   setup.bat              16gb profile set: xl-sft, xl-turbo, 2B turbo, LM 0.6B (+ vae, text encoder)  ~45 GB
 rem   setup.bat --large      also LM 4B
+rem   setup.bat --12gb       2B only: 2B turbo, 2B base, LM 0.6B, no XL (ACESTEP_GPU_PROFILE=12gb)  ~15 GB
 rem   setup.bat --no-models  environment only
 rem Not yet verified on Windows (written from the Linux setup.sh; the Python side is the same).
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 set WANT_MODELS=1
 set LARGE=0
+set TWELVE=0
 :args
 if "%~1"=="" goto run
 if /i "%~1"=="--no-models" set WANT_MODELS=0
 if /i "%~1"=="--large" set LARGE=1
+if /i "%~1"=="--12gb" set TWELVE=1
 shift
 goto args
 
@@ -40,8 +43,12 @@ uv run --no-sync python -c "import torch; ok=torch.cuda.is_available(); print('t
 
 if "%WANT_MODELS%"=="1" (
     echo [4/4] checkpoints (skips what already exists)
-    uv run --no-sync acestep-download --model acestep-v15-xl-sft || exit /b 1
-    uv run --no-sync acestep-download --model acestep-v15-xl-turbo || exit /b 1
+    if "%TWELVE%"=="1" (
+        uv run --no-sync acestep-download --model acestep-v15-base || exit /b 1
+    ) else (
+        uv run --no-sync acestep-download --model acestep-v15-xl-sft || exit /b 1
+        uv run --no-sync acestep-download --model acestep-v15-xl-turbo || exit /b 1
+    )
     uv run --no-sync acestep-download --model acestep-5Hz-lm-0.6B || exit /b 1
     if "%LARGE%"=="1" uv run --no-sync acestep-download --model acestep-5Hz-lm-4B
 ) else (

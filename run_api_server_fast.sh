@@ -23,6 +23,9 @@ fi
 #         text encoder offloaded. Measured on RTX A4000: XL-SFT 300 s song 62-65 s.
 #   large (>= 40 GB VRAM) every DiT stays on the GPU (no swap), nothing is
 #         offloaded, LM 4B. XL-SFT + XL-turbo + 2B turbo + LM 4B ~ 33 GB.
+#   12gb  2B only (the XL weights alone are 10 GB): acestep-v15-turbo resident,
+#         acestep-v15-base swapped in on request, LM 0.6B. Same residency
+#         machinery as 16gb.
 # Every value below can be overridden from the environment.
 # -----------------------------------------------------------------------------
 
@@ -36,9 +39,16 @@ if [[ "$ACESTEP_GPU_PROFILE" == "large" ]]; then
 	export ACESTEP_VAE_DECODE_CHUNK_SIZE="${ACESTEP_VAE_DECODE_CHUNK_SIZE:-1024}"
 fi
 
+if [[ "$ACESTEP_GPU_PROFILE" == "12gb" ]]; then
+	export ACESTEP_CONFIG_PATH="${ACESTEP_CONFIG_PATH:-acestep-v15-turbo}"
+	export ACESTEP_CONFIG_PATH2="${ACESTEP_CONFIG_PATH2-acestep-v15-base}"
+	export ACESTEP_CONFIG_PATH3="${ACESTEP_CONFIG_PATH3-}"
+fi
+
+# An empty ACESTEP_CONFIG_PATH2 / 3 (set but empty) means "no model in that slot".
 export ACESTEP_CONFIG_PATH="${ACESTEP_CONFIG_PATH:-acestep-v15-xl-sft}"
-export ACESTEP_CONFIG_PATH2="${ACESTEP_CONFIG_PATH2:-acestep-v15-xl-turbo}"
-export ACESTEP_CONFIG_PATH3="${ACESTEP_CONFIG_PATH3:-acestep-v15-turbo}"
+export ACESTEP_CONFIG_PATH2="${ACESTEP_CONFIG_PATH2-acestep-v15-xl-turbo}"
+export ACESTEP_CONFIG_PATH3="${ACESTEP_CONFIG_PATH3-acestep-v15-turbo}"
 
 export ACESTEP_DIT_RESIDENCY="${ACESTEP_DIT_RESIDENCY:-exclusive}"
 # Host side of the parked DiTs (16gb profile): "mmap" = bf16 safetensors under
