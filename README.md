@@ -73,6 +73,28 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 - **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ(未ロードのモデル名は primary に置き換わり、結果の `dit_model` で分かる)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
 - **学習(LoRA / LoKr)**: API の `/train` 系ルートと `acestep/training_v2`。手順は [docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(オリジナルのまま。コマンドライン版 `train.py` は削除済み)。
 
+## 外部アプリからの利用(API 互換性)
+
+このサーバは「音楽生成 API」としてオリジナルの ACE-Step 1.5 と同じ契約で使えます。`/release_task` → `/query_result` → `/v1/audio` の流れ、`/format_input`、`/create_random_sample`、`/v1/models`、`/health`、`/v1/stats`、`/v1/init` のリクエスト・レスポンスの形は変えていません。
+追加した `GET /v1/residency` と `POST /v1/residency/activate`(GPU 上のモデルの確認と事前切替)、外した `/v1/chat/completions`(OpenRouter 向け)、`model` と `seed` の注意点は [docs/ja/API.md の 12 節](docs/ja/API.md#12-このフォークace-step-15-fastでの追加と互換性) にまとめています。
+この契約は単体テスト(`acestep/api/api_contract_test.py`)で守っています。
+
+### アプリの例: ACE-Step-client-pro
+
+[ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro) は、この API を使う本格的な Web アプリの例です(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。このサーバと組み合わせるときは、
+
+```bash
+git clone https://github.com/animede/ACE-Step-client-pro.git
+cd ACE-Step-client-pro
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env     # ACE_STEP_API_URL=http://localhost:8001 (このサーバ)。歌詞用の LLM は OPENAI_BASE_URL(Ollama 等)
+./start.sh               # http://localhost:8888
+```
+
+- `model` を送らないので生成は常に primary(xl-sft)で行われます。turbo を使いたいときは、このリポジトリの `/ui/` か、クライアント側で `model` を付けてください。
+- 歌詞生成の LLM は外部(OpenAI 互換、既定 Ollama)で、接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします。GPU は使いません。
+
 ## モデル
 
 | DiT | 大きさ | CFG | step | 用途 |

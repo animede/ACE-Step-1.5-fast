@@ -746,3 +746,37 @@ APIサーバーは環境変数で設定できます：
 7. **本番環境** では `ACESTEP_API_KEY` を設定して認証を有効にし、APIを保護。
 
 8. **低VRAM環境** では `ACESTEP_OFFLOAD_TO_CPU=true` を有効にして、より長いオーディオ生成をサポート。
+
+---
+
+## 12. このフォーク(ACE-Step-1.5-fast)での追加と互換性
+
+外部アプリから「音楽生成 API」として使うための契約は、オリジナルの ACE-Step 1.5 と同じです。
+上の 1〜11 の仕様(`/release_task` → `/query_result` → `/v1/audio`、`/format_input`、`/create_random_sample`、`/v1/models`、`/v1/stats`、`/health`、`/v1/init`)は
+リクエスト・レスポンスの形を変えていません。参考実装は [ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro)(別プロセスの Web アプリ、`ACE_STEP_API_URL` でこのサーバを指す)。
+
+### 12.1 変わらないこと
+
+- 認証(`ACESTEP_API_KEY`)、レスポンスの包み(`data` / `code` / `error` / `timestamp`)、タスクのステータス(0 / 1 / 2)、結果 JSON の各フィールド(`file`、`dit_model`、`lm_model`、`seed_value`、`metas`、`generation_info` …)。
+- `model` を省略した場合は primary(`run_api_server_fast.sh` では `acestep-v15-xl-sft`)。読み込まれていないモデル名を指定した場合は primary に置き換わる(結果の `dit_model` で確認できる)。
+
+### 12.2 追加したもの
+
+| エンドポイント | 用途 |
+|---|---|
+| `GET /v1/residency` | 排他常駐のとき、どの DiT が GPU 上かと各 slot の状態(`{"mode","store","active","slots":[{"slot","model","loaded","on_gpu"}]}`) |
+| `POST /v1/residency/activate` `{"model"}` または `{"slot"}` | 指定の DiT を事前に GPU へ(実行中のジョブを待ってから切替)。共有常駐のサーバでは 400 |
+| `POST /v1/init {"model","slot"}` | オリジナルと同じ。排他常駐では GPU 上でない slot を CPU に読み込んで退避するので、他のモデルを使いながら slot を入れ替えられる |
+
+生成の挙動に関わる追加: `model` によるリクエスト単位の切替が、排他常駐では約 2 秒のモデル入れ替えを伴う(連続して同じモデルを使えば発生しない)。
+
+### 12.3 外したもの
+
+- `/v1/chat/completions`(OpenAI Chat Completions 互換、OpenRouter 向け)。
+- `/v1/models` は、オリジナルの形(`{"models":[{"name","is_default"}],"default_model"}`)だけを返す。オリジナルでは OpenAI 形式(`{"object":"list","data":[{"id":"acestep/…"}]}`)が先に登録されて勝っていたが、その登録を外した。両方の形を受けるクライアントは影響なし。
+
+### 12.4 使うときの注意
+
+- `seed` を固定したいときは `use_random_seed: false` を一緒に送る(`seed` だけでは無視される。オリジナルと同じ仕様)。`batch_size` が 2 以上なら本数ぶんをカンマ区切りで。
+- 生成 1 本の打ち切りは `ACESTEP_GENERATION_TIMEOUT`(既定 600 秒)。
+- 同時実行(`ACESTEP_QUEUE_WORKERS` ≥ 2)でも、LM の段はサーバ内で直列化される。別モデルへの切替は実行中のジョブが終わってから。

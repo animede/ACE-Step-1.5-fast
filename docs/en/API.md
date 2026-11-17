@@ -870,3 +870,37 @@ curl -X POST http://localhost:8001/v1/training/start_lokr \
 7. **For production**, set `ACESTEP_API_KEY` to enable authentication and secure your API.
 
 8. **For low VRAM environments**, enable `ACESTEP_OFFLOAD_TO_CPU=true` to support longer audio generation.
+
+---
+
+## 12. Additions and compatibility in this fork (ACE-Step-1.5-fast)
+
+The contract for using this server as a music generation API from external applications is the same as the original ACE-Step 1.5:
+sections 1-11 above (`/release_task` -> `/query_result` -> `/v1/audio`, `/format_input`, `/create_random_sample`, `/v1/models`, `/v1/stats`, `/health`, `/v1/init`)
+keep their request and response shapes. Reference application: [ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro) (a separate web app that points `ACE_STEP_API_URL` at this server).
+
+### 12.1 Unchanged
+
+- Authentication (`ACESTEP_API_KEY`), the response envelope (`data` / `code` / `error` / `timestamp`), task statuses (0 / 1 / 2), result fields (`file`, `dit_model`, `lm_model`, `seed_value`, `metas`, `generation_info`, ...).
+- Omitting `model` uses the primary (`acestep-v15-xl-sft` with `run_api_server_fast.sh`); a model name that is not loaded falls back to the primary (check `dit_model` in the result).
+
+### 12.2 Added
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/residency` | With exclusive residency: which DiT is on the GPU and the state of each slot (`{"mode","store","active","slots":[{"slot","model","loaded","on_gpu"}]}`) |
+| `POST /v1/residency/activate` `{"model"}` or `{"slot"}` | Move that DiT onto the GPU ahead of time (waits for in-flight jobs); 400 on shared-residency servers |
+| `POST /v1/init {"model","slot"}` | As in the original; with exclusive residency a slot that is not on the GPU is loaded on the CPU and parked, so slots can be swapped while another model keeps serving |
+
+Behavioural note: per-request `model` switching costs about 2 s of model swap under exclusive residency (none when consecutive requests use the same model).
+
+### 12.3 Removed
+
+- `/v1/chat/completions` (OpenAI Chat Completions compatibility for OpenRouter).
+- `/v1/models` now returns only the original shape (`{"models":[{"name","is_default"}],"default_model"}`). In the original, an OpenAI-style listing (`{"object":"list","data":[{"id":"acestep/..."}]}`) was registered first and shadowed it; that registration is gone. Clients that accept both shapes are unaffected.
+
+### 12.4 Notes for client authors
+
+- To pin a seed send `use_random_seed: false` together with `seed` (`seed` alone is ignored, as in the original); with `batch_size` > 1 pass one seed per item, comma-separated.
+- `ACESTEP_GENERATION_TIMEOUT` (default 600 s) bounds a single generation.
+- With `ACESTEP_QUEUE_WORKERS` >= 2 the LM phase is still serialised inside the server, and a switch to another model waits for in-flight jobs.
