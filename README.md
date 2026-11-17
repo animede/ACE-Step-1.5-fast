@@ -79,7 +79,7 @@ run_easy_music.bat 8888
 ```
 
 - ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_easy_music.bat 8890`)。停止は `close_api_server.bat`。
-- 歌詞生成の LLM(OpenAI 互換 API。既定は `http://localhost:11434/v1` = Ollama、無ければ CPU 上の GGUF = Gemma 4 E4B Q4_0 にフォールバック。同梱 LLM のビルドには Visual Studio Build Tools の C++ と CMake が必要)を指定するには、起動引数か `easy-music\.env` を使う:
+- 歌詞生成の LLM(OpenAI 互換 API。既定は `http://localhost:11434/v1` = Ollama、無ければ CPU 上の GGUF = Gemma 4 E4B Q4_0 にフォールバック。同梱 LLM は llama.cpp のビルド済み `llama-server` を初回に自動取得するのでコンパイラ不要)を指定するには、起動引数か `easy-music\.env` を使う:
 
 ```bat
 run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
@@ -146,7 +146,7 @@ cd ACE-Step-1.5-fast
 
 ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_easy_music.sh 8890`。
 
-- 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは CPU 上の GGUF(Gemma 4 E4B Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)にフォールバックします(GPU は使いません)。この同梱 LLM は `llama-cpp-python>=0.3.34` をソースからビルドするので gcc/g++ と cmake が要ります。無ければ外部 LLM のみになります。
+- 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは CPU 上の GGUF(Gemma 4 E4B Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)にフォールバックします(GPU は使いません)。同梱 LLM の実体は llama.cpp の GitHub Releases にあるビルド済み `llama-server`(CPU 版、約 25MB、固定タグ b12475)で、初回のフォールバック時に `easy-music/tools/llama/` へ自動取得して子プロセスとして起動します(コンパイラ不要。`easy-music/.venv/bin/python easy-music/scripts/fetch_llama_server.py` で事前取得も可)。既存のバイナリや GGUF を使うなら環境変数 `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)で指定できます。
 
 **LLM の指定方法**(起動引数 > `easy-music/.env` > 既定値 `http://localhost:11434/v1` の順に優先):
 

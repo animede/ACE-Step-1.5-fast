@@ -61,7 +61,7 @@ cd ACE-Step-1.5-fast
 
 On Windows: `run_easy_music.bat 8888`. Then open `http://localhost:8888`.
 
-Lyrics are written by an OpenAI-compatible LLM API (Ollama, llama.cpp server, LM Studio, vLLM, OpenAI, ...); the default is `http://localhost:11434/v1` (Ollama). If it cannot be reached, the app falls back to a CPU GGUF model (Gemma 4 E4B Q4_0, about 4.4GB, downloaded on first use, thinking off). That bundled LLM needs `llama-cpp-python>=0.3.34` built from source (Linux: gcc/g++ + cmake; Windows: Visual Studio Build Tools C++ + CMake). Two ways to set it, in order of precedence: launch arguments > `easy-music/.env` > defaults.
+Lyrics are written by an OpenAI-compatible LLM API (Ollama, llama.cpp server, LM Studio, vLLM, OpenAI, ...); the default is `http://localhost:11434/v1` (Ollama). If it cannot be reached, the app falls back to a CPU GGUF model (Gemma 4 E4B Q4_0, about 4.4GB, downloaded on first use, thinking off). The bundled LLM is llama.cpp's prebuilt `llama-server` (CPU build, about 25MB) from the GitHub Releases: it is fetched into `easy-music/tools/llama/` on the first fallback and run as a child process. No compiler or Build Tools needed (`easy-music/scripts/fetch_llama_server.py` pre-fetches it; point `LLAMA_SERVER` / `LOCAL_LLM_GGUF` at existing files). Two ways to set it, in order of precedence: launch arguments > `easy-music/.env` > defaults.
 
 Launch arguments:
 

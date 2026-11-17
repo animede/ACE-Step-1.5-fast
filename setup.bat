@@ -56,12 +56,10 @@ if "%WANT_MODELS%"=="1" (
 )
 echo [5/5] Easy Music web app environment (easy-music\.venv)
 if not exist "easy-music\.venv" uv venv easy-music\.venv --python 3.11 -q
-findstr /v /i "llama-cpp-python" easy-music\requirements.txt > easy-music\requirements.base.tmp
-uv pip install --python easy-music\.venv\Scripts\python.exe -q -r easy-music\requirements.base.tmp
-del easy-music\requirements.base.tmp
-rem GGUF lyrics fallback (Gemma 4 E4B, CPU). Built from source: needs Visual Studio Build Tools
-rem (C++ workload) + CMake. The prebuilt CPU wheels are too old for Gemma 4. Optional.
-uv pip install --python easy-music\.venv\Scripts\python.exe -q "llama-cpp-python>=0.3.34" || echo   llama-cpp-python not installed (needs Visual Studio Build Tools C++ and CMake): the client will use the external LLM only
+uv pip install --python easy-music\.venv\Scripts\python.exe -q -r easy-music\requirements.txt
+rem GGUF lyrics fallback (Gemma 4 E4B, CPU): prebuilt llama-server.exe from llama.cpp releases, no Build Tools.
+rem Pre-fetch here (optional, ~25MB); otherwise it is fetched on the first fallback.
+easy-music\.venv\Scripts\python.exe easy-music\scripts\fetch_llama_server.py || echo   llama-server not pre-fetched (offline?): it will be fetched on the first fallback
 echo.
 echo Done. Start the server with:  run_api_server_fast.bat   (then open http://localhost:8001/ui/)
 echo       and the web app with:   run_easy_music.bat        (http://localhost:8888)
