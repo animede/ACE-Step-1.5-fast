@@ -128,9 +128,9 @@ if [[ $UV_FOUND -eq 1 ]]; then
     echo "[RESULT] Environment: uv"
     echo "  Ready to use!"
     if [[ "$OS_NAME" == "Darwin" && "$ARCH" == "arm64" ]]; then
-        echo "  Recommended launcher: ./start_gradio_ui_macos.sh (MLX)"
+        echo "  Recommended launcher: ./run_api_server_fast.sh (API + /ui/)"
     else
-        echo "  Recommended launcher: ./start_gradio_ui.sh"
+        echo "  Recommended launcher: ./run_api_server_fast.sh (API + /ui/)"
     fi
 else
     echo "[RESULT] No environment found"

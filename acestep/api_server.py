@@ -96,7 +96,7 @@ from acestep.inference import (
     create_sample,
     format_sample,
 )
-from acestep.ui.gradio.events.results_handlers import _build_generation_info
+from acestep.api.generation_info import _build_generation_info
 
 def _get_project_root() -> str:
     current_file = os.path.abspath(__file__)
