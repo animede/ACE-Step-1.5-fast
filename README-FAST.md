@@ -1,0 +1,25 @@
+# ACE-Step-1.5-fast
+
+ACE-Step 1.5 のフォーク。**16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**。
+上流(ace-step/ACE-Step-1.5、git remote `upstream`)の 2026-05-04 時点 `6c1b2ef` を土台にしている。
+
+## 上流との違い(要点)
+
+- API サーバが `ACESTEP_QUANTIZATION` を受け取る(上流は量子化を一切渡さず常に bf16)。
+- ローダ: CPU で量子化してから GPU へ(読み込みピーク = 常駐)、compile は `decoder.forward` に当てる。
+- `ACESTEP_DIT_RESIDENCY=exclusive`: GPU に DiT を 1 本だけ置き、他は CPU の pinned メモリに退避して約 2 秒で入れ替える。
+- `ACESTEP_FUSED_RMSNORM=exact`: DiT の RMSNorm を融合カーネルに(1 step −14%)。
+- `ACESTEP_RESIDENT_COMPONENTS` / `ACESTEP_VAE_DECODE_CHUNK_SIZE` / `ACESTEP_MP3_COMPRESSION_LEVEL`: 拡散以外の削減。
+- `ACESTEP_DIT_FUSIONS`(attention/MLP/adaLN の eager 融合)、`ACESTEP_QUANTIZATION=int8_plain`: 実装済みだが効果が小さく既定 OFF。
+
+実測(A4000、XL-SFT、300 秒 1 曲、32 step、mp3・CoT あり): 84 秒 → 62〜65 秒。記録と注意点は
+`docs/ja/低VRAM_XL_プローブ_20261116.md`。
+
+## 起動
+
+```bash
+./run_api_server_xl_swap.sh      # XL-SFT 常駐(bf16)+ XL-turbo を要求時に入れ替え(16GB 向け)
+./run_api_server_multimodel.sh   # 複数 DiT を同時常駐(VRAM に余裕がある GPU 向け)
+```
+
+VRAM に余裕がある GPU では multimodel に `ACESTEP_FUSED_RMSNORM=exact ACESTEP_OFFLOAD_TO_CPU=0 ACESTEP_LM_OFFLOAD_TO_CPU=0 ACESTEP_VAE_DECODE_CHUNK_SIZE=512` を付ける。
