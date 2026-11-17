@@ -26,11 +26,20 @@
 
 ## セットアップ
 
+### Linux の場合
+
+前提は NVIDIA ドライバ(CUDA 12.8 以上対応)と `git`、`curl` だけです。上から順に実行します。
+
 ```bash
-./setup.sh              # uv の導入 → .venv の作成 → GPU 確認 → チェックポイント取得(約 45GB、取得済みは飛ばす)
+git clone https://github.com/animede/ACE-Step-1.5-fast.git
+cd ACE-Step-1.5-fast
+./setup.sh
+./run_api_server_fast.sh
 ```
 
-Linux x86_64 + NVIDIA(CUDA 12.8)向け。`--large` で LM 4B も取得、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
+- 起動後にブラウザで `http://localhost:8001/ui/` を開く。停止は `./close_api_server.sh --port 8001`。
+- `./setup.sh` が uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得(約 45GB、取得済みは飛ばす)を行う。`--large` で LM 4B も、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
+
 ### Windows の場合
 
 前提は NVIDIA ドライバ(CUDA 12.8 以上対応)だけです。Python・CUDA Toolkit・Visual Studio は不要(uv が Python 3.11 を用意し、torch と flash-attn はビルド済み wheel)。コマンドプロンプトで上から順に実行します。
