@@ -162,16 +162,27 @@ OPENAI_CHAT_MODEL=gemma3:latest
 
 ## モデル
 
-| DiT | 大きさ | CFG | step | 用途 |
-|---|---|---|---|---|
-| `acestep-v15-turbo` | 2B | なし | 8 | 速い下書き |
-| `acestep-v15-base` / `-sft` | 2B | あり | 50 | 2B の品質重視(base は extract / lego / complete 対応) |
-| `acestep-v15-xl-turbo` | 4B | なし | 8 | XL の速い生成 |
-| `acestep-v15-xl-sft` | 4B | あり | 50(実運用 32) | **最高品質(このフォークの主役)** |
-| `acestep-v15-xl-base` | 4B | あり | 50 | XL の extract / lego / complete |
+| DiT | 大きさ | CFG | step | VRAM(bf16 の重み) | ディスク | 用途 |
+|---|---|---|---|---|---|---|
+| `acestep-v15-turbo` | 2B | なし | 8 | 4.8GB | 4.5GB | 速い下書き |
+| `acestep-v15-base` / `-sft` | 2B | あり | 50 | 4.8GB | 4.5GB | 2B の品質重視(base は extract / lego / complete 対応) |
+| `acestep-v15-xl-turbo` | 4B | なし | 8 | 10.0GB | 19GB | XL の速い生成 |
+| `acestep-v15-xl-sft` | 4B | あり | 50(実運用 32) | 10.0GB | 19GB | **最高品質(このフォークの主役)** |
+| `acestep-v15-xl-base` | 4B | あり | 50 | 10.0GB | 19GB | XL の extract / lego / complete |
 
-LM(CoT / thinking): `acestep-5Hz-lm-0.6B` / `1.7B` / `4B`(Qwen3 ベース)。16GB では 0.6B、余裕があれば 4B。
-配布元: [Hugging Face ACE-Step](https://huggingface.co/ACE-Step)。
+DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 8.4GB(Qwen3 ベース)、テキストエンコーダ `Qwen3-Embedding-0.6B` 1.2GB、VAE 0.3GB。16GB では LM 0.6B、余裕があれば 4B。
+配布元: [Hugging Face ACE-Step](https://huggingface.co/ACE-Step)。`setup.sh` の既定(xl-sft、xl-turbo、turbo、LM 0.6B、TE、VAE)で約 45GB、`--large` で LM 4B が加わり約 53GB。
+
+### 必要 VRAM の目安(実測は RTX A4000 16GB、RTX PRO 6000 96GB)
+
+| プロファイル | GPU に載るもの | 起動直後 | 生成中のピーク | ホスト側 |
+|---|---|---|---|---|
+| `16gb`(既定) | DiT 1 本(既定 xl-sft)+ VAE + LM 0.6B。TE は要求時だけ GPU へ(同時実行 2 以上では常駐、+1.2GB) | 約 10GB | XL-sft 300 秒 1 本で約 13.6GB、2B turbo 60 秒で約 12GB | サーバ常駐 約 4GB。退避中の DiT は `.cache/acestep/dit_residency/` の bf16 ファイル(XL 10GB、2B 4.8GB、初回起動時に作成、合計約 25GB のディスク)をページキャッシュ経由で読むので、RAM はその分あると切替が約 2 秒、無ければ NVMe から約 7 秒 |
+| `large` | 3 本の DiT 全部 + VAE + TE + LM 4B、退避なし | 約 35GB(重みの合計からの見込み) | 生成分(300 秒 1 本で 3〜4GB、同時実行数ぶん)が上乗せ。40GB 以上、同時実行 2〜4 なら 48GB 級 | サーバ常駐 約 4GB |
+
+- 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
+- 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
+- 12GB 以下の GPU は対象外(XL の bf16 重みだけで 10GB)。2B のみ(`ACESTEP_CONFIG_PATH=acestep-v15-turbo` に変更、XL を外す)なら動く余地はあるが未確認。
 
 ## 文書
 
