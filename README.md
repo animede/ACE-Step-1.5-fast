@@ -81,7 +81,10 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 
 ### 同梱アプリ: ACE-Step-client-pro(`client-pro/`)
 
-この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。`./setup.sh` が専用の環境(`client-pro/.venv`)も作るので、起動は次の 2 つです。
+この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。
+
+![ACE-Step-client-pro の起動画面](client-pro/startupUI.png)
+`./setup.sh` が専用の環境(`client-pro/.venv`)も作るので、起動は次の 2 つです。
 
 ```bash
 ./run_api_server_fast.sh     # API サーバ(8001)
