@@ -38,16 +38,18 @@ cd ACE-Step-1.5-fast
 ターミナル 1(API サーバ、起動したまま):
 
 ```bash
+cd ACE-Step-1.5-fast
 ./run_api_server_fast.sh
 ```
 
 ターミナル 2(同梱の Web アプリを使う場合。サーバが起動してから):
 
 ```bash
-./run_client_pro.sh
+cd ACE-Step-1.5-fast
+./run_client_pro.sh 8888
 ```
 
-- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。停止は `./close_api_server.sh --port 8001`。
+- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `./run_client_pro.sh 8890`)。停止は `./close_api_server.sh --port 8001`。
 - `./setup.sh` が uv の導入 → `.venv` の作成 → GPU 確認 → モデル取得(約 45GB、取得済みは飛ばす)を行う。`--large` で LM 4B も、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
 
 ### Windows の場合
@@ -64,16 +66,18 @@ setup.bat
 コマンドプロンプト 1(API サーバ、起動したまま):
 
 ```bat
+cd ACE-Step-1.5-fast
 run_api_server_fast.bat
 ```
 
 コマンドプロンプト 2(同梱の Web アプリを使う場合。サーバが起動してから):
 
 ```bat
-run_client_pro.bat
+cd ACE-Step-1.5-fast
+run_client_pro.bat 8888
 ```
 
-- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。停止は `close_api_server.bat`。
+- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_client_pro.bat 8890`)。停止は `close_api_server.bat`。
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトで `setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください。
@@ -111,16 +115,18 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 ターミナル 1(API サーバ、起動したまま):
 
 ```bash
+cd ACE-Step-1.5-fast
 ./run_api_server_fast.sh
 ```
 
-ターミナル 2(Web アプリ。サーバが起動してから):
+ターミナル 2(Web アプリ。サーバが起動してから。引数はポート):
 
 ```bash
-./run_client_pro.sh
+cd ACE-Step-1.5-fast
+./run_client_pro.sh 8888
 ```
 
-ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_client_pro.sh --port 8890`。
+ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_client_pro.sh 8890`。
 
 - 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`client-pro/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
 - アプリは `model` を送らないので生成は常に primary(xl-sft)です。turbo は `/ui/` から使えます。
