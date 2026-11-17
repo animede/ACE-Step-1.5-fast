@@ -69,6 +69,9 @@ async def run_one_job_runtime(
     )
 
     def _blocking_generate() -> dict[str, Any]:
+        residency = getattr(app_state, "dit_residency", None)
+        if residency is not None:
+            residency.activate(selected_handler)
         return build_blocking_result_fn(selected_handler, selected_model_name)
 
     t0 = time.time()

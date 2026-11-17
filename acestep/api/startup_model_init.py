@@ -5,12 +5,58 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Optional
 
+from acestep.cli_args import parse_quantization_arg
 from acestep.gpu_config import (
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
     get_gpu_config,
     set_global_gpu_config,
 )
+from acestep.api.dit_residency import RESIDENCY_ENV, DitResidency, residency_mode_from_env
 from acestep.api.startup_llm_init import initialize_llm_at_startup
+
+
+RESIDENT_COMPONENTS_ENV = "ACESTEP_RESIDENT_COMPONENTS"
+_RESIDENT_CHOICES = ("vae", "text_encoder")
+
+
+def resident_components_from_env(value: Optional[str]) -> tuple:
+    """Parse a comma list of components to keep on the GPU despite offload_to_cpu."""
+    names = tuple(part.strip().lower() for part in (value or "").split(",") if part.strip())
+    return tuple(name for name in names if name in _RESIDENT_CHOICES)
+
+
+def _make_components_resident(handler: Any, components: tuple, device: str) -> None:
+    """Move the named components of ``handler`` to its device for good."""
+    if not components:
+        return
+    handler.resident_components = components
+    target = getattr(handler, "device", device)
+    if str(target) == "cpu":
+        return
+    if "vae" in components and getattr(handler, "vae", None) is not None:
+        handler.vae = handler.vae.to(target).to(handler._get_vae_dtype(target))
+    if "text_encoder" in components and getattr(handler, "text_encoder", None) is not None:
+        handler.text_encoder = handler.text_encoder.to(target).to(handler.dtype)
+    print(f"[API Server] Resident components (not offloaded): {', '.join(components)}")
+
+
+def _park_secondary(
+    handler: Any, primary: Any, residency: DitResidency, offload_to_cpu: bool, offload_dit_to_cpu: bool
+) -> None:
+    """Pin a secondary DiT in host memory, share the primary's VAE/text encoder, restore offload flags.
+
+    All DiT variants use the same VAE and Qwen3 text encoder, so the secondary
+    drops its own copies (loaded on the CPU) and points at the primary's. This
+    keeps one resident copy regardless of the offload setting.
+    """
+    residency.park(handler)
+    for attr in ("vae", "text_encoder", "text_tokenizer"):
+        shared = getattr(primary, attr, None)
+        if shared is not None:
+            setattr(handler, attr, shared)
+    handler.offload_to_cpu = offload_to_cpu
+    handler.offload_dit_to_cpu = offload_dit_to_cpu
+    handler.resident_components = getattr(primary, "resident_components", ())
 
 
 def do_model_initialization(
@@ -60,6 +106,12 @@ def do_model_initialization(
 
     offload_dit_to_cpu = env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
+    quantization = parse_quantization_arg(os.getenv("ACESTEP_QUANTIZATION"))
+    residency_mode = residency_mode_from_env(os.getenv(RESIDENCY_ENV))
+    residency = DitResidency(active=handler) if residency_mode == "exclusive" else None
+    app.state.dit_residency = residency
+    if residency is not None:
+        print("[API Server] DiT residency: exclusive (one DiT on the GPU, others parked in pinned host memory)")
 
     checkpoint_dir = os.path.join(project_root, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -85,6 +137,7 @@ def do_model_initialization(
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
         offload_dit_to_cpu=offload_dit_to_cpu,
+        quantization=quantization,
     )
     if not ok:
         app.state._init_error = status_msg
@@ -92,6 +145,11 @@ def do_model_initialization(
         raise RuntimeError(status_msg)
     app.state._initialized = True
     print(f"[API Server] Primary model loaded: {get_model_name(config_path)}")
+    if residency is not None:
+        residency.prime(handler)
+    resident_components = resident_components_from_env(os.getenv(RESIDENT_COMPONENTS_ENV))
+    if offload_to_cpu:
+        _make_components_resident(handler, resident_components, device)
 
     if handler2 and config_path2:
         model2_name = get_model_name(config_path2)
@@ -108,9 +166,12 @@ def do_model_initialization(
                 device=device,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
-                offload_to_cpu=offload_to_cpu,
-                offload_dit_to_cpu=offload_dit_to_cpu,
+                offload_to_cpu=True if residency is not None else offload_to_cpu,
+                offload_dit_to_cpu=True if residency is not None else offload_dit_to_cpu,
+                quantization=quantization,
             )
+            if ok2 and residency is not None:
+                _park_secondary(handler2, handler, residency, offload_to_cpu, offload_dit_to_cpu)
             app.state._initialized2 = ok2
             if ok2:
                 print(f"[API Server] Secondary model loaded: {model2_name}")
@@ -135,9 +196,12 @@ def do_model_initialization(
                 device=device,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
-                offload_to_cpu=offload_to_cpu,
-                offload_dit_to_cpu=offload_dit_to_cpu,
+                offload_to_cpu=True if residency is not None else offload_to_cpu,
+                offload_dit_to_cpu=True if residency is not None else offload_dit_to_cpu,
+                quantization=quantization,
             )
+            if ok3 and residency is not None:
+                _park_secondary(handler3, handler, residency, offload_to_cpu, offload_dit_to_cpu)
             app.state._initialized3 = ok3
             if ok3:
                 print(f"[API Server] Third model loaded: {model3_name}")

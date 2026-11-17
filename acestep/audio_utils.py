@@ -172,8 +172,13 @@ class AudioSaver:
                 '-codec:a', 'libmp3lame',
                 '-ar', str(int(target_sample_rate)),
                 '-b:a', bitrate,
-                str(output_path),
             ]
+            # Optional LAME speed/quality preset (0 = best/slowest ... 9 = fastest).
+            # Bitrate is unchanged; level 7 roughly halves the encode time of a 5 min track.
+            compression_level = os.environ.get("ACESTEP_MP3_COMPRESSION_LEVEL", "").strip()
+            if compression_level.isdigit() and 0 <= int(compression_level) <= 9:
+                cmd += ['-compression_level', compression_level]
+            cmd.append(str(output_path))
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
         except FileNotFoundError as e:

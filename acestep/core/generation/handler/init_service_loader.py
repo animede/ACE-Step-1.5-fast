@@ -90,8 +90,13 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
         raise ValueError(f"Unsupported quantization type: {quantization}")
 
     def _apply_dit_quantization(self, quantization: Optional[str]) -> None:
-        """Apply torchao quantization to DiT linear layers when requested."""
+        """Apply quantization to DiT linear layers when requested."""
         if quantization is None:
+            return
+        if quantization == "int8_plain":
+            from .int8_plain_linear import quantize_linears
+            replaced = quantize_linears(self.model)
+            logger.info(f"[initialize_service] DiT quantized with: int8_plain ({replaced} linear layers)")
             return
         from torchao.quantization import quantize_
         from torchao.quantization.quant_api import _is_linear
@@ -101,7 +106,8 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
             """Keep only decoder-side DiT linear layers and exclude tokenizers."""
             if not _is_linear(module, fqn):
                 return False
-            parts = fqn.split(".")
+            # torch.compile wraps the model and prefixes names with "_orig_mod."
+            parts = [part for part in fqn.split(".") if part != "_orig_mod"]
             if not parts or parts[0] != "decoder":
                 return False
             for part in parts:
@@ -194,19 +200,37 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
         self._sync_alignment_config()
         self._apply_cuda_bool_argsort_workaround()
 
+        # Quantize while the weights are still on the CPU so the GPU never holds
+        # the full bf16 copy (XL: ~9 GB bf16 vs ~5 GB INT8). Quantization must
+        # also run before torch.compile, otherwise the compiled wrapper hides
+        # the decoder modules from the quantization filter.
+        self.model = self.model.to(self.dtype)
+        self.model.eval()
+        self._apply_dit_quantization(quantization)
+        from .fused_rmsnorm import fuse_rmsnorm_from_env
+        fused_mode, fused_count = fuse_rmsnorm_from_env(self.model)
+        if fused_mode:
+            logger.info(f"[initialize_service] Fused RMSNorm ({fused_mode}) applied to {fused_count} modules")
+        from .dit_fusions import apply_dit_fusions_from_env
+        fusions = apply_dit_fusions_from_env(self.model)
+        if fusions:
+            logger.info(f"[initialize_service] DiT fusions applied: {fusions}")
+
         if not self.offload_to_cpu:
-            self.model = self.model.to(device).to(self.dtype)
+            self.model = self.model.to(device)
         elif not self.offload_dit_to_cpu:
             logger.info(f"[initialize_service] Keeping main model on {device} (persistent)")
-            self.model = self.model.to(device).to(self.dtype)
+            self.model = self.model.to(device)
         else:
-            self.model = self.model.to("cpu").to(self.dtype)
-        self.model.eval()
+            self.model = self.model.to("cpu")
 
         if compile_model:
+            # Generation goes through ``model.generate_audio`` -> ``model.decoder``,
+            # so compiling the top-level module (its ``forward``) never covers the
+            # diffusion loop. Compile the decoder's forward instead; this keeps
+            # ``model.decoder`` a plain module (LoRA lifecycle swaps it).
             self._ensure_len_for_compile(self.model, "model")
-            self.model = torch.compile(self.model)
-        self._apply_dit_quantization(quantization)
+            self.model.decoder.forward = torch.compile(self.model.decoder.forward)
 
         silence_latent_path = os.path.join(model_checkpoint_path, "silence_latent.pt")
         if not os.path.exists(silence_latent_path):

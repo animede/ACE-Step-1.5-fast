@@ -8,6 +8,7 @@ _QUANTIZATION_ALIASES = {
     "int8_weight_only": "int8_weight_only",
     "fp8_weight_only": "fp8_weight_only",
     "w8a8_dynamic": "w8a8_dynamic",
+    "int8_plain": "int8_plain",
 }
 _NONE_ALIASES = {"", "none", "null"}
 
@@ -36,6 +37,6 @@ def parse_quantization_arg(value: str | None) -> str | None:
         return quantization
 
     raise argparse.ArgumentTypeError(
-        "Invalid quantization value. Use int8_weight_only, fp8_weight_only, "
+        "Invalid quantization value. Use int8_weight_only, fp8_weight_only, int8_plain, "
         "w8a8_dynamic, or none."
     )

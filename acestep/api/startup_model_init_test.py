@@ -206,3 +206,64 @@ class StartupModelInitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StartupModelInitQuantizationTests(unittest.TestCase):
+    """ACESTEP_QUANTIZATION must reach every DiT slot's initialize_service."""
+
+    @patch("acestep.api.startup_model_init.initialize_llm_at_startup")
+    @patch("acestep.api.startup_model_init.set_global_gpu_config")
+    @patch("acestep.api.startup_model_init.get_gpu_config")
+    def test_quantization_env_is_forwarded_to_all_dit_slots(
+        self,
+        mock_get_gpu_config: MagicMock,
+        _mock_set_global_gpu_config: MagicMock,
+        _mock_initialize_llm_at_startup: MagicMock,
+    ) -> None:
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                _initialized=False,
+                _initialized2=False,
+                _initialized3=False,
+                _init_error=None,
+                _llm_initialized=False,
+                _llm_init_error=None,
+                _llm_lazy_load_disabled=False,
+            )
+        )
+        handler = MagicMock()
+        handler.initialize_service.return_value = ("ok", True)
+        handler2 = MagicMock()
+        handler2.initialize_service.return_value = ("ok", True)
+        mock_get_gpu_config.return_value = _gpu_config()
+
+        def _env_bool(name: str, default: bool) -> bool:
+            return False if name == "ACESTEP_NO_INIT" else default
+
+        with patch.dict(os.environ, {"ACESTEP_QUANTIZATION": "Int8_Weight_Only"}, clear=True):
+            initialize_models_at_startup(
+                app=app,
+                handler=handler,
+                llm_handler=MagicMock(),
+                handler2=handler2,
+                handler3=None,
+                config_path2="acestep-v15-xl-sft",
+                config_path3="",
+                get_project_root=MagicMock(return_value="k:/repo"),
+                get_model_name=MagicMock(side_effect=lambda p: p),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=_env_bool,
+            )
+
+        for mocked in (handler, handler2):
+            kwargs = mocked.initialize_service.call_args.kwargs
+            self.assertEqual(kwargs["quantization"], "int8_weight_only")
+
+
+class ResidentComponentsParsingTests(unittest.TestCase):
+    def test_parse_filters_unknown_names(self):
+        from acestep.api.startup_model_init import resident_components_from_env
+
+        self.assertEqual(resident_components_from_env(None), ())
+        self.assertEqual(resident_components_from_env("vae"), ("vae",))
+        self.assertEqual(resident_components_from_env("VAE, text_encoder, model"), ("vae", "text_encoder"))

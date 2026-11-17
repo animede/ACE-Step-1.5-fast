@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Dict, Optional
 
+from acestep.cli_args import parse_quantization_arg
 from acestep.gpu_config import (
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
     get_gpu_config,
@@ -104,6 +105,7 @@ def initialize_models_for_request(
     use_flash_attention = env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
     offload_dit_to_cpu = env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
+    quantization = parse_quantization_arg(os.getenv("ACESTEP_QUANTIZATION"))
     device = os.getenv("ACESTEP_DEVICE", "auto")
 
     ensure_model_downloaded(target_model, checkpoint_dir)
@@ -117,6 +119,7 @@ def initialize_models_for_request(
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
         offload_dit_to_cpu=offload_dit_to_cpu,
+        quantization=quantization,
     )
     if not ok:
         setattr(app_state, error_attr, status_msg)

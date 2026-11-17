@@ -101,7 +101,7 @@ class InitServiceSetupMixin:
 
     def _validate_quantization_setup(self, *, quantization: Optional[str], compile_model: bool) -> None:
         """Validate quantization prerequisites before model loading."""
-        if quantization is None:
+        if quantization is None or quantization == "int8_plain":
             return
         try:
             import torchao  # noqa: F401

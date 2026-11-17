@@ -133,6 +133,9 @@ class AceStepHandler(
         self.custom_layers_config = dict(_DEFAULT_LAYERS_CONFIG)
         self.offload_to_cpu = False
         self.offload_dit_to_cpu = False
+        # Component names ("vae", "text_encoder") kept on the device even when
+        # offload_to_cpu is True (see ACESTEP_RESIDENT_COMPONENTS).
+        self.resident_components: tuple = ()
         self.compiled = False
         self.current_offload_cost = 0.0
         self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not getattr(sys.stderr, 'isatty', lambda: False)()

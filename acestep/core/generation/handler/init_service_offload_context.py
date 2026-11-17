@@ -12,7 +12,7 @@ class InitServiceOffloadContextMixin:
     @contextmanager
     def _load_model_context(self, model_name: str):
         """Load a model to device for the context and offload back to CPU on exit."""
-        if not self.offload_to_cpu:
+        if not self.offload_to_cpu or model_name in getattr(self, "resident_components", ()):
             yield
             return
 
