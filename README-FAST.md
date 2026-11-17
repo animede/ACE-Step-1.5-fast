@@ -18,7 +18,8 @@ ACE-Step 1.5 のフォーク。**16GB 級 GPU(RTX A4000)で XL(4B)モデルを�
 ## 起動
 
 ```bash
-./run_api_server_xl_swap.sh      # XL-SFT 常駐(bf16)+ XL-turbo を要求時に入れ替え(16GB 向け)
+./run_api_server_fast.sh         # 16GB 向けの標準: XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え
+./run_api_server_xl_swap.sh      # XL-SFT 常駐(bf16)+ XL-turbo を要求時に入れ替え(2 本版)
 ./run_api_server_multimodel.sh   # 複数 DiT を同時常駐(VRAM に余裕がある GPU 向け)
 ```
 
