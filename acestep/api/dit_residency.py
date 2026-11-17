@@ -7,13 +7,19 @@ or a memory-mapped bf16 file, see ``dit_residency_store``), so switching the
 active model costs a host-to-GPU copy (one to three seconds for a bf16 XL DiT)
 instead of a reload from disk, and the active model has the whole GPU.
 
-The queue executor serialises generations, so ``activate`` is only ever called
-from the single generation thread; no locking is needed.
+Concurrency (ACESTEP_QUEUE_WORKERS / ACESTEP_API_WORKERS > 1): generation
+threads enter through ``use(handler)``. Jobs for the handler that is already
+on the GPU run in parallel; a job for another handler waits until the in-flight
+jobs finish, switches, and then runs. While a switch is waiting, new jobs for
+the current handler also wait, so a steady stream of one model cannot starve
+the other.
 """
 
 from __future__ import annotations
 
+import threading
 import time
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import torch
@@ -41,6 +47,44 @@ class DitResidency:
     def __init__(self, active: Any = None, store: Any = None):
         self.active = active
         self.store = store or PinnedStore()
+        self._cond = threading.Condition()
+        self._in_use = 0
+        self._switch_waiting = 0
+
+    @contextmanager
+    def use(self, handler: Any):
+        """Hold ``handler`` on the GPU for the duration of a generation (thread-safe).
+
+        Jobs on the active handler run concurrently. A job for another handler
+        registers as a pending switch, waits for the in-flight jobs to finish,
+        switches, and runs; jobs for the active handler arriving while a switch
+        is pending wait behind it (no starvation of the other model).
+        """
+        with self._cond:
+            counted = False
+            try:
+                while True:
+                    if self.active is not handler:
+                        if not counted:
+                            self._switch_waiting += 1
+                            counted = True
+                        if self._in_use == 0:
+                            self.activate(handler)
+                            break
+                    elif self._switch_waiting == 0 or counted:
+                        break
+                    self._cond.wait()
+            finally:
+                if counted:
+                    self._switch_waiting -= 1
+                    self._cond.notify_all()
+            self._in_use += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._in_use -= 1
+                self._cond.notify_all()
 
     def prime(self, handler: Any) -> None:
         """Prepare the host side of ``handler``'s DiT now (it stays on the GPU).

@@ -71,3 +71,34 @@ class MmapStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResidencyConcurrencyTests(unittest.TestCase):
+    def test_switch_waits_for_inflight_jobs_and_same_model_runs_in_parallel(self):
+        import threading
+        import time as _time
+
+        a, b = _fake_handler("a"), _fake_handler("b")
+        residency = DitResidency(active=a)
+        residency.park(b)
+        events = []
+        a_started, release_a = threading.Event(), threading.Event()
+
+        def job_a(tag):
+            with residency.use(a):
+                events.append(f"{tag}:start"); a_started.set(); release_a.wait(5); events.append(f"{tag}:end")
+
+        def job_b():
+            with residency.use(b):
+                events.append("b:start"); events.append("b:end")
+
+        t1 = threading.Thread(target=job_a, args=("a1",)); t1.start(); a_started.wait(5)
+        t2 = threading.Thread(target=job_a, args=("a2",)); t2.start(); _time.sleep(0.2)  # same model: runs alongside a1
+        t3 = threading.Thread(target=job_b); t3.start(); _time.sleep(0.2)
+        self.assertNotIn("b:start", events)  # b waits for a1/a2
+        self.assertEqual(residency._switch_waiting, 1)
+        release_a.set(); t1.join(5); t2.join(5); t3.join(5)
+        self.assertEqual(events[-2:], ["b:start", "b:end"])
+        self.assertIn("a2:start", events[:3])
+        self.assertIs(residency.active, b)
+        self.assertEqual(residency._in_use, 0)

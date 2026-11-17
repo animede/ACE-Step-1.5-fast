@@ -15,6 +15,8 @@ from contextlib import contextmanager
 import yaml
 import torch
 from loguru import logger
+
+from acestep.llm_concurrency import serialized
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers.generation.streamers import BaseStreamer
@@ -1279,6 +1281,7 @@ class LLMHandler:
 
         return f"<think>\n{cot_yaml}\n</think>"
 
+    @serialized
     def generate_with_stop_condition(
         self,
         caption: str,
@@ -1847,6 +1850,7 @@ class LLMHandler:
             add_generation_prompt=True,
         )
 
+    @serialized
     def understand_audio_from_codes(
         self,
         audio_codes: str,
@@ -2039,6 +2043,7 @@ class LLMHandler:
             add_generation_prompt=True,
         )
 
+    @serialized
     def create_sample_from_query(
         self,
         query: str,
@@ -2213,6 +2218,7 @@ class LLMHandler:
             add_generation_prompt=True,
         )
 
+    @serialized
     def format_sample_from_input(
         self,
         caption: str,

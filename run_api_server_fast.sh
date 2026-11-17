@@ -51,7 +51,17 @@ export ACESTEP_VAE_DECODE_CHUNK_SIZE="${ACESTEP_VAE_DECODE_CHUNK_SIZE:-512}"
 export ACESTEP_NO_INIT="${ACESTEP_NO_INIT:-false}"
 export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 
-export ACESTEP_API_WORKERS="${ACESTEP_API_WORKERS:-1}"
+# Concurrency (see 運用メモ_同時実行数とキュー.md): ACESTEP_QUEUE_WORKERS jobs run at
+# once, ACESTEP_API_WORKERS must match. Jobs on the DiT that is on the GPU run in
+# parallel; a request for another DiT waits for them, swaps, then runs. LM calls
+# are serialised internally. With more than one worker the text encoder must
+# stay on the GPU too (set below), so budget VRAM for the extra activations.
+export ACESTEP_QUEUE_WORKERS="${ACESTEP_QUEUE_WORKERS:-1}"
+export ACESTEP_API_WORKERS="${ACESTEP_API_WORKERS:-$ACESTEP_QUEUE_WORKERS}"
+if [[ "$ACESTEP_QUEUE_WORKERS" -gt 1 && "$ACESTEP_RESIDENT_COMPONENTS" == "vae" ]]; then
+	export ACESTEP_RESIDENT_COMPONENTS="vae,text_encoder"
+fi
+export ACESTEP_QUEUE_MAXSIZE="${ACESTEP_QUEUE_MAXSIZE:-200}"
 HOST="${ACESTEP_API_HOST:-0.0.0.0}"
 PORT="${ACESTEP_API_PORT:-8001}"
 LOG_LEVEL="${ACESTEP_API_LOG_LEVEL:-info}"

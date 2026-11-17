@@ -70,9 +70,10 @@ async def run_one_job_runtime(
 
     def _blocking_generate() -> dict[str, Any]:
         residency = getattr(app_state, "dit_residency", None)
-        if residency is not None:
-            residency.activate(selected_handler)
-        return build_blocking_result_fn(selected_handler, selected_model_name)
+        if residency is None:
+            return build_blocking_result_fn(selected_handler, selected_model_name)
+        with residency.use(selected_handler):  # keeps the DiT on the GPU; serialises model switches
+            return build_blocking_result_fn(selected_handler, selected_model_name)
 
     t0 = time.time()
     try:
