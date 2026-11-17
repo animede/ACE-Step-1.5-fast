@@ -33,7 +33,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 gpu_config=gpu_config,
                 device="cuda",
                 offload_to_cpu=False,
-                checkpoint_dir="k:/repo/checkpoints",
+                checkpoint_dir="/tmp/acestep-tests/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
                 ensure_model_downloaded=MagicMock(),
                 env_bool=lambda _name, default: default,
@@ -73,7 +73,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 gpu_config=gpu_config,
                 device="cuda",
                 offload_to_cpu=False,
-                checkpoint_dir="k:/repo/checkpoints",
+                checkpoint_dir="/tmp/acestep-tests/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-1.1B"),
                 ensure_model_downloaded=ensure_model_downloaded,
                 env_bool=lambda _name, default: default,
@@ -81,7 +81,7 @@ class StartupLlmInitTests(unittest.TestCase):
 
         ensure_model_downloaded.assert_called_once_with(
             "acestep-5Hz-lm-1.1B",
-            "k:/repo/checkpoints",
+            "/tmp/acestep-tests/repo/checkpoints",
         )
         llm_handler.initialize.assert_called_once()
         self.assertTrue(app.state._llm_initialized)
@@ -115,7 +115,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 gpu_config=gpu_config,
                 device="cuda",
                 offload_to_cpu=False,
-                checkpoint_dir="k:/repo/checkpoints",
+                checkpoint_dir="/tmp/acestep-tests/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
                 ensure_model_downloaded=MagicMock(),
                 env_bool=lambda _name, default: default,

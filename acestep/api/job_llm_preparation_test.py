@@ -57,7 +57,7 @@ class JobLlmPreparationTests(unittest.TestCase):
                 app_state=app_state,
                 llm_handler=llm,
                 req=req,
-                get_project_root=MagicMock(return_value="k:/repo"),
+                get_project_root=MagicMock(return_value="/tmp/acestep-tests/repo"),
                 get_model_name=MagicMock(return_value="lm"),
                 ensure_model_downloaded=MagicMock(),
                 env_bool=lambda _name, default: default,

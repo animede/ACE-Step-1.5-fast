@@ -37,7 +37,7 @@ class LifespanRuntimeTests(unittest.TestCase):
                 queue_maxsize=200,
                 avg_window=50,
                 initial_avg_job_seconds=5.0,
-                get_project_root=MagicMock(return_value="k:/repo"),
+                get_project_root=MagicMock(return_value="/tmp/acestep-tests/repo"),
                 initialize_training_state_fn=training_state_init,
                 ace_handler_cls=ace_handler_cls,
                 llm_handler_cls=llm_handler_cls,
@@ -73,7 +73,7 @@ class LifespanRuntimeTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "ACESTEP_TMPDIR": "k:/tmp/acestep",
+                "ACESTEP_TMPDIR": "/tmp/acestep-tests/tmp/acestep",
                 "ACESTEP_CONFIG_PATH2": "acestep-v15-second",
                 "ACESTEP_CONFIG_PATH3": "acestep-v15-third",
                 "ACESTEP_API_WORKERS": "3",
@@ -86,12 +86,12 @@ class LifespanRuntimeTests(unittest.TestCase):
                 queue_maxsize=50,
                 avg_window=20,
                 initial_avg_job_seconds=2.5,
-                get_project_root=MagicMock(return_value="k:/repo"),
+                get_project_root=MagicMock(return_value="/tmp/acestep-tests/repo"),
                 initialize_training_state_fn=training_state_init,
                 ace_handler_cls=ace_handler_cls,
                 llm_handler_cls=llm_handler_cls,
             )
-            self.assertEqual("k:/tmp/acestep", os.environ.get("TMPDIR"))
+            self.assertEqual("/tmp/acestep-tests/tmp/acestep", os.environ.get("TMPDIR"))
 
         self.assertIsNotNone(runtime.handler2)
         self.assertIsNotNone(runtime.handler3)
