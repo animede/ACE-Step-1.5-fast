@@ -19,4 +19,8 @@ export ACE_STEP_API_URL="${ACE_STEP_API_URL:-http://127.0.0.1:${ACESTEP_API_PORT
 if [[ "${1:-}" =~ ^[0-9]+$ ]]; then  # a bare number = listen port
 	set -- --port "$1" "${@:2}"
 fi
+# Production default: no auto-reload (set EASY_MUSIC_RELOAD=1 for the dev reloader).
+if [[ -z "${EASY_MUSIC_RELOAD:-}" ]]; then
+	set -- --no-reload "$@"
+fi
 exec python main.py "$@"

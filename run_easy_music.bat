@@ -12,5 +12,6 @@ if not defined ACESTEP_API_PORT set ACESTEP_API_PORT=8001
 if not defined ACE_STEP_API_URL set ACE_STEP_API_URL=http://127.0.0.1:%ACESTEP_API_PORT%
 set "ARGS=%*"
 echo %~1| findstr /r "^[0-9][0-9]*$" >nul && set "ARGS=--port %*"
+if not defined EASY_MUSIC_RELOAD set "ARGS=--no-reload %ARGS%"
 python main.py %ARGS%
 endlocal

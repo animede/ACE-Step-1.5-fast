@@ -63,10 +63,10 @@ if [[ "$WANT_CLIENT" == "1" ]]; then
 	echo "[5/5] Easy Music web app environment (easy-music/.venv)"
 	[[ -d easy-music/.venv ]] || uv venv easy-music/.venv --python 3.11 -q
 	uv pip install --python easy-music/.venv/bin/python -q -r <(grep -v "llama-cpp-python" easy-music/requirements.txt)
-	# CPU-only prebuilt wheel for the GGUF lyrics fallback (no compiler needed); optional
-	uv pip install --python easy-music/.venv/bin/python -q "llama-cpp-python>=0.3.0" \
-		--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
-		|| echo "  llama-cpp-python not installed: the client will use the external LLM only"
+	# GGUF lyrics fallback (Gemma 4 E4B, CPU). Built from source: the prebuilt CPU wheels
+	# stop at 0.3.19, whose llama.cpp predates Gemma 4. Needs gcc/g++ and cmake; optional.
+	uv pip install --python easy-music/.venv/bin/python -q "llama-cpp-python>=0.3.34" \
+		|| echo "  llama-cpp-python not installed (needs gcc/g++ + cmake): the client will use the external LLM only"
 else
 	echo "[5/5] Easy Music environment: skipped (--no-client)"
 fi
