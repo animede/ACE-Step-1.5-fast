@@ -27,13 +27,10 @@
 ## セットアップ
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-cd ACE-Step-1.5-fast
-uv sync
+./setup.sh              # uv の導入 → .venv の作成 → GPU 確認 → チェックポイント取得(約 45GB、取得済みは飛ばす)
 ```
 
-チェックポイントは `checkpoints/` に置きます(無ければ起動時に自動ダウンロード。`uv run acestep-download --list` で一覧)。
-XL を使うには `acestep-v15-xl-sft` / `acestep-v15-xl-turbo`(各 19GB)が必要です。
+Linux x86_64 + NVIDIA(CUDA 12.8)向け。`--large` で LM 4B も取得、`--no-models` で環境だけ。詳細は [docs/ja/INSTALL.md](docs/ja/INSTALL.md)。
 
 ## 起動
 
