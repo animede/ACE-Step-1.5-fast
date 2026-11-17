@@ -95,9 +95,7 @@ app.include_router(simple.router)
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """メインページ"""
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "title": "ACE-Step 1.5 Music Generator"
+    return templates.TemplateResponse(request, "index.html", {"title": "ACE-Step 1.5 Music Generator"
     })
 
 

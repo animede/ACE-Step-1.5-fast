@@ -73,7 +73,7 @@ http://localhost:8888
 uv run acestep-api
 ```
 
-Note: If you already have `acestep` installed locally, you can also start the API server using the scripts in this repository (e.g. `./run_api_server_lowvram.sh`).
+Note: this app ships inside ACE-Step-1.5-fast: start the server with `./run_api_server_fast.sh` and this app with `./run_client_pro.sh` from the parent directory (`./setup.sh` builds both environments).
 
 ## 🔧 Configuration
 
@@ -147,8 +147,6 @@ ace_step_client_pro/
 ├── .env.example         # Environment variables template
 ├── .env                 # Environment variables (optional)
 ├── start.sh             # Startup script
-├── run_api_server_lowvram.sh      # Start ACE-Step API server (low VRAM)
-├── run_api_server_multimodel.sh   # Start ACE-Step API server (multi-model)
 ├── README.md            # Japanese README
 ├── README_EN.md         # English README
 ├── docs/

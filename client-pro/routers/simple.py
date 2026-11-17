@@ -12,7 +12,5 @@ templates = Jinja2Templates(directory="templates")
 @router.get("/simple", response_class=HTMLResponse)
 async def simple_page(request: Request):
     """シンプルモードページ"""
-    return templates.TemplateResponse("simple.html", {
-        "request": request,
-        "title": "ACE-Step 1.5 — シンプルモード"
+    return templates.TemplateResponse(request, "simple.html", {"title": "ACE-Step 1.5 — シンプルモード"
     })

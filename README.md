@@ -79,21 +79,18 @@ ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも 
 追加した `GET /v1/residency` と `POST /v1/residency/activate`(GPU 上のモデルの確認と事前切替)、外した `/v1/chat/completions`(OpenRouter 向け)、`model` と `seed` の注意点は [docs/ja/API.md の 12 節](docs/ja/API.md#12-このフォークace-step-15-fastでの追加と互換性) にまとめています。
 この契約は単体テスト(`acestep/api/api_contract_test.py`)で守っています。
 
-### アプリの例: ACE-Step-client-pro
+### 同梱アプリ: ACE-Step-client-pro(`client-pro/`)
 
-[ACE-Step-client-pro](https://github.com/animede/ACE-Step-client-pro) は、この API を使う本格的な Web アプリの例です(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。このサーバと組み合わせるときは、
+この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888。簡単モードとカスタムモード、LLM による歌詞生成)。`./setup.sh` が専用の環境(`client-pro/.venv`)も作るので、起動は次の 2 つです。
 
 ```bash
-git clone https://github.com/animede/ACE-Step-client-pro.git
-cd ACE-Step-client-pro
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env     # ACE_STEP_API_URL=http://localhost:8001 (このサーバ)。歌詞用の LLM は OPENAI_BASE_URL(Ollama 等)
-./start.sh               # http://localhost:8888
+./run_api_server_fast.sh     # API サーバ(8001)
+./run_client_pro.sh          # Web アプリ(8888)→ http://localhost:8888。8888 が使用中なら ./run_client_pro.sh --port 8890
 ```
 
-- `model` を送らないので生成は常に primary(xl-sft)で行われます。turbo を使いたいときは、このリポジトリの `/ui/` か、クライアント側で `model` を付けてください。
-- 歌詞生成の LLM は外部(OpenAI 互換、既定 Ollama)で、接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします。GPU は使いません。
+- 歌詞生成の LLM は外部の OpenAI 互換 API(既定 Ollama、`client-pro/.env` の `OPENAI_BASE_URL`)。接続できないときは CPU 上の GGUF(Qwen3-1.7B)にフォールバックします(GPU は使いません)。
+- アプリは `model` を送らないので生成は常に primary(xl-sft)です。turbo は `/ui/` から使えます。
+- 使い方の詳細は [client-pro/README.md](client-pro/README.md)。**ライセンスに注意**: `client-pro/` は PolyForm Noncommercial 1.0.0([client-pro/LICENSE](client-pro/LICENSE))で、それ以外(サーバ本体)は MIT です。
 
 ## モデル
 
@@ -123,7 +120,7 @@ Junmin Gong、Yulin Song、Wenxiao Zhao、Sen Wang、Shengyuan Xu、Jing Guo を
 
 ## ライセンスと引用
 
-コードは [MIT](./LICENSE)(オリジナルと同じ)。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
+コードは [MIT](./LICENSE)(オリジナルと同じ)。ただし同梱の `client-pro/` は PolyForm Noncommercial 1.0.0(非商用)です。モデルの利用条件は各モデルカードに従ってください。オリジナルの研究への引用:
 
 ```BibTeX
 @misc{gong2026acestep,

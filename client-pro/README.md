@@ -76,7 +76,7 @@ http://localhost:8888
 uv run acestep-api
 ```
 
-補足: `acestep` をローカル環境に導入済みの場合、このリポジトリ内のスクリプト（例: `./run_api_server_lowvram.sh`）で起動する運用もできます。
+補足: このリポジトリ(ACE-Step-1.5-fast)に同梱されているので、サーバは親ディレクトリの `./run_api_server_fast.sh`、クライアントは `./run_client_pro.sh` で起動できます(環境は `./setup.sh` が作ります)。
 
 ## 🔧 設定
 
@@ -150,8 +150,6 @@ ace_step_client_pro/
 ├── .env.example         # 環境変数サンプル
 ├── .env                 # 環境変数（任意）
 ├── start.sh             # 起動スクリプト
-├── run_api_server_lowvram.sh      # ACE-Step APIサーバ起動（低VRAM向け）
-├── run_api_server_multimodel.sh   # ACE-Step APIサーバ起動（複数モデル）
 ├── README.md            # このファイル
 ├── README_EN.md         # English README
 ├── docs/
