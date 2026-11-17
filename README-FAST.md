@@ -19,6 +19,7 @@ ACE-Step 1.5 のフォーク。**16GB 級 GPU(RTX A4000)で XL(4B)モデルを�
 
 サーバ起動後に `http://<host>:<port>/ui/` を開く。`webui/`(HTML + JS)を API サーバが配信し、`/release_task` 等の REST API だけで動く。
 モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint・簡易モード、LM の設定、結果の再生と履歴(seed の再利用)ができる。
+「サーバのモデル管理」で、どの DiT が GPU 上かの確認、事前の切替(`POST /v1/residency/activate`)、slot への別モデルの読み込み(`POST /v1/init`、排他常駐では CPU に読んで退避)ができる。
 
 ## 起動
 

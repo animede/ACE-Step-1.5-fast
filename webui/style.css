@@ -25,3 +25,10 @@ button.small { font-size:11px; padding:2px 8px; margin-left:8px; } button:disabl
 .card .head b { color:var(--fg); } .card audio { width:100%; margin:4px 0; }
 .card pre { white-space:pre-wrap; font-size:11px; color:var(--muted); max-height:140px; overflow:auto; margin:4px 0; background:#0f1114; padding:6px; border-radius:4px; }
 .card.failed { border-color:var(--err); } .card .tools { display:flex; gap:8px; margin-top:4px; }
+
+main { grid-template-areas: "models models" "form results"; }
+.panel.models { grid-area: models; } .panel.form { grid-area: form; } .panel.results { grid-area: results; }
+@media (max-width: 900px) { main { grid-template-areas: "models" "form" "results"; } }
+table#slots { border-collapse: collapse; width:100%; margin-bottom:8px; font-size:13px; }
+table#slots th, table#slots td { border-bottom:1px solid var(--border); padding:4px 8px; text-align:left; }
+table#slots td.gpu { color:var(--ok); font-weight:600; }

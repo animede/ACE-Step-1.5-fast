@@ -12,6 +12,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from acestep.api.http.audio_route import register_audio_route
 from acestep.api.http.lora_routes import register_lora_routes
 from acestep.api.http.model_service_routes import register_model_service_routes
+from acestep.api.http.residency_routes import register_residency_routes
 from acestep.api.http.query_result_route import register_query_result_route
 from acestep.api.http.reinitialize_route import register_reinitialize_route
 from acestep.api.http.release_task_route import register_release_task_route
@@ -82,6 +83,7 @@ def configure_api_routes(
         ensure_model_downloaded=ensure_model_downloaded,
         env_bool=env_bool,
     )
+    register_residency_routes(app=app, verify_api_key=verify_api_key, wrap_response=wrap_response, get_model_name=get_model_name)
 
     register_sample_format_routes(
         app=app,

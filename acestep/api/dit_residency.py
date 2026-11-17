@@ -86,6 +86,19 @@ class DitResidency:
                 self._in_use -= 1
                 self._cond.notify_all()
 
+    @contextmanager
+    def exclusive(self):
+        """Block new jobs and wait for in-flight ones; for admin operations (model switch / reload)."""
+        with self._cond:
+            self._switch_waiting += 1
+            try:
+                while self._in_use > 0:
+                    self._cond.wait()
+                yield
+            finally:
+                self._switch_waiting -= 1
+                self._cond.notify_all()
+
     def prime(self, handler: Any) -> None:
         """Prepare the host side of ``handler``'s DiT now (it stays on the GPU).
 

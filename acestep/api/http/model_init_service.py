@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import Any, Callable, Dict, Optional
 
@@ -111,16 +112,25 @@ def initialize_models_for_request(
     ensure_model_downloaded(target_model, checkpoint_dir)
     ensure_model_downloaded("vae", checkpoint_dir)
 
-    status_msg, ok = handler.initialize_service(
-        project_root=project_root,
-        config_path=target_model,
-        device=device,
-        use_flash_attention=use_flash_attention,
-        compile_model=compile_model,
-        offload_to_cpu=offload_to_cpu,
-        offload_dit_to_cpu=offload_dit_to_cpu,
-        quantization=quantization,
-    )
+    residency = getattr(app_state, "dit_residency", None)
+    park_after = residency is not None and residency.active is not handler
+    with (residency.exclusive() if residency is not None else contextlib.nullcontext()):
+        if residency is not None:
+            residency.store.release(handler)
+        status_msg, ok = handler.initialize_service(
+            project_root=project_root,
+            config_path=target_model,
+            device=device,
+            use_flash_attention=use_flash_attention,
+            compile_model=compile_model,
+            offload_to_cpu=True if park_after else offload_to_cpu,
+            offload_dit_to_cpu=True if park_after else offload_dit_to_cpu,
+            quantization=quantization,
+        )
+        if ok and park_after:
+            from acestep.api.startup_model_init import _park_secondary
+
+            _park_secondary(handler, app_state.handler, residency, offload_to_cpu, offload_dit_to_cpu)
     if not ok:
         setattr(app_state, error_attr, status_msg)
         raise RuntimeError(f"DiT init failed for slot {resolved_slot}: {status_msg}")

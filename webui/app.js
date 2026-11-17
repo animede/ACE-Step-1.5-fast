@@ -43,6 +43,40 @@
     catch (e) { status($("server-status"), e.message, "err"); }
   };
 
+  // ---- model management (slots, residency, /v1/init)
+  async function refreshResidency() {
+    try {
+      const r = await api("/v1/residency");
+      status($("residency-mode"), r.mode === "exclusive" ? `排他常駐(${r.store})・GPU: ${r.active || "-"}` : "共有常駐(全モデルが GPU 上)", "ok");
+      const tb = $("slots").querySelector("tbody"); tb.innerHTML = "";
+      for (const s of r.slots) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${s.slot}</td><td>${s.model}</td><td class="${s.on_gpu ? "gpu" : ""}">${s.on_gpu ? "● GPU" : (s.loaded ? "退避中" : "未読込")}</td><td></td>`;
+        if (r.mode === "exclusive" && s.loaded && !s.on_gpu) {
+          const b = document.createElement("button"); b.className = "small"; b.textContent = "GPU に載せる";
+          b.onclick = async () => { b.disabled = true; status($("models-status"), `${s.model} を GPU へ…`);
+            try { await api("/v1/residency/activate", { slot: s.slot }); status($("models-status"), "切替完了", "ok"); }
+            catch (e) { status($("models-status"), e.message, "err"); } await refreshResidency(); };
+          tr.lastElementChild.appendChild(b);
+        }
+        tb.appendChild(tr);
+      }
+    } catch (e) { status($("residency-mode"), "取得できません: " + e.message, "err"); }
+    try {
+      const inv = await api("/v1/model_inventory"); const sel = $("inventory"); sel.innerHTML = "";
+      for (const m of (inv.models || [])) { const o = document.createElement("option"); o.value = m.name; o.textContent = m.name + (m.is_loaded ? "(読込済)" : ""); sel.appendChild(o); }
+    } catch (e) { /* inventory endpoint missing */ }
+  }
+  $("btn-residency").onclick = refreshResidency;
+  $("btn-init").onclick = async () => {
+    const model = $("inventory_custom").value.trim() || $("inventory").value; const slot = Number($("init_slot").value);
+    if (!model) return;
+    $("btn-init").disabled = true; status($("models-status"), `slot ${slot} に ${model} を読み込み中…(数十秒)`);
+    try { const r = await api("/v1/init", { model, slot }); status($("models-status"), `完了: slot ${r.slot} = ${r.loaded_model}`, "ok"); }
+    catch (e) { status($("models-status"), e.message, "err"); }
+    $("btn-init").disabled = false; await refreshResidency(); await refreshHealth();
+  };
+
   // ---- form <-> request
   const num = (id) => { const v = $(id).value.trim(); return v === "" ? null : Number(v); };
   const modelName = () => $("model_custom").value.trim() || $("model").value;
@@ -155,5 +189,5 @@
   $("btn-clear").onclick = () => { history.length = 0; localStorage.removeItem("acestep_fast_history"); render(); };
 
   $("task_type").addEventListener("change", () => { $("audio-tasks").open = $("task_type").value !== "text2music"; });
-  render(); refreshHealth();
+  render(); refreshHealth(); refreshResidency();
 })();

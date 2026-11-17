@@ -18,6 +18,20 @@
 </header>
 
 <main>
+<section class="panel models" id="models-panel">
+  <h2>サーバのモデル管理 <button id="btn-residency" type="button" class="small">更新</button> <span id="residency-mode" class="status"></span></h2>
+  <table id="slots">
+    <thead><tr><th>slot</th><th>モデル</th><th>GPU</th><th>操作</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="row">
+    <label>読み込み可能 <select id="inventory"></select> <input id="inventory_custom" type="text" placeholder="手入力(任意)" size="22"></label>
+    <label>slot <select id="init_slot"><option>1</option><option>2</option><option>3</option></select></label>
+    <button id="btn-init" type="button">この slot に読み込む(切替)</button>
+    <span id="models-status" class="status"></span>
+  </div>
+</section>
+
 <section class="panel form">
   <h2>生成</h2>
   <div class="row">
