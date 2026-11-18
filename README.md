@@ -1,5 +1,7 @@
 # ACE-Step-1.5-fast
 
+**最新版: 2026-11-18 14:55 JST** — Windows 向けの修正(HF キャッシュの symlink 無効化、winget の `--source winget`、バッチの CRLF 化、GPU 確認を `scripts/check_env.py` に)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
 オリジナル(ace-step/ACE-Step-1.5、git remote `upstream`)の 2026-05-04 時点 `6c1b2ef` を土台にし、オリジナルの取り込みは予定していません。
