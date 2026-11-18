@@ -7,6 +7,8 @@ rem Set any variable before calling this script to override it, e.g.  set ACESTE
 rem Not yet verified on Windows.
 setlocal
 cd /d "%~dp0"
+rem see setup.bat: Hugging Face cache without symlinks (WinError 1314 on PCs without Developer Mode)
+if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if exist ".venv\Scripts\activate.bat" call ".venv\Scripts\activate.bat"
 
 if not defined ACESTEP_GPU_PROFILE set ACESTEP_GPU_PROFILE=16gb

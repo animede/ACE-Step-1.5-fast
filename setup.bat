@@ -7,6 +7,9 @@ rem   setup.bat --no-models  environment only
 rem Not yet verified on Windows (written from the Linux setup.sh; the Python side is the same).
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
+rem Hugging Face cache without symlinks: without Developer Mode, huggingface_hub's parallel downloads race on the
+rem symlink check and abort with WinError 1314 (seen on Windows 10). Disk usage is unchanged.
+if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 set WANT_MODELS=1
 set LARGE=0
 set TWELVE=0
@@ -25,7 +28,7 @@ if errorlevel 1 (
     where winget >nul 2>nul
     if not errorlevel 1 (
         echo installing uv with winget...
-        winget install --id astral-sh.uv -e --accept-source-agreements --accept-package-agreements
+        winget install --id astral-sh.uv -e --source winget --accept-source-agreements --accept-package-agreements
         set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%"
     ) else (
         echo winget not found; installing uv with the official PowerShell installer...
@@ -39,7 +42,7 @@ echo [2/4] Python environment (.venv, from uv.lock; Python 3.11 is required by t
 uv sync --frozen --python 3.11 || exit /b 1
 
 echo [3/4] GPU / libraries
-uv run --no-sync python -c "import torch; ok=torch.cuda.is_available(); print('torch', torch.__version__, 'cuda available:', ok); [print(' GPU%d: %s %.1f GB sm_%d%d' % (i, p.name, p.total_memory/2**30, p.major, p.minor)) for i in range(torch.cuda.device_count()) for p in [torch.cuda.get_device_properties(i)]]; import importlib; m=importlib.util.find_spec('flash_attn'); print('flash_attn', 'available' if m else 'not installed (the server will use SDPA)')"
+uv run --no-sync python scripts\check_env.py
 
 if "%WANT_MODELS%"=="1" (
     echo [4/4] checkpoints (skips what already exists)

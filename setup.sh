@@ -34,20 +34,7 @@ echo "[2/5] Python environment (.venv, from uv.lock)"
 uv sync --frozen
 
 echo "[3/5] GPU / libraries"
-uv run --no-sync python - <<'PY'
-import torch
-ok = torch.cuda.is_available()
-print(f"torch {torch.__version__}  cuda available: {ok}")
-if ok:
-    for i in range(torch.cuda.device_count()):
-        p = torch.cuda.get_device_properties(i)
-        print(f"  GPU{i}: {p.name}  {p.total_memory / 2**30:.1f} GB  sm_{p.major}{p.minor}")
-try:
-    import flash_attn
-    print(f"flash_attn {flash_attn.__version__} (used by the DiT attention)")
-except Exception as exc:  # the server falls back to SDPA, ~10-25% slower
-    print(f"flash_attn not importable ({exc}); the server will use SDPA")
-PY
+uv run --no-sync python scripts/check_env.py
 
 if [[ "$WANT_MODELS" == "1" ]]; then
 	echo "[4/5] checkpoints (skips what already exists)"

@@ -3,6 +3,7 @@ rem Start Easy Music (easy-music\) against the local API server. Environment: ea
 rem   run_easy_music.bat         -> http://localhost:8888      run_easy_music.bat 8890 -> another port
 setlocal
 cd /d "%~dp0easy-music"
+if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if not exist ".venv\Scripts\activate.bat" (
     echo easy-music\.venv is missing: run setup.bat first.
     exit /b 1
