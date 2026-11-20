@@ -19,10 +19,12 @@ logger = logging.getLogger("uvicorn.error")
 
 
 async def _release_local_llm() -> None:
-    """ACE に生成を投げる直前に、同梱 LLM(CUDA 版 llama-server)を止めて VRAM を返す。
+    """ACE に生成を投げる直前に、同梱 LLM(CUDA 版 llama-server)を止めて VRAM を返し、「ACE 生成中」を立てる。
 
-    12GB の GPU では ACE の拡散ピーク(約 8.5GB)と E4B(約 3GB+)が同時に入らないため。
-    次に LLM が要るときは自動で起こし直す(ページキャッシュから数秒)。LOCAL_LLM_STOP_BEFORE_ACE=0 で無効。
+    12GB の GPU では ACE の拡散ピーク(約 8.5GB)と E4B(約 3GB+)が同時に入らないため。生成中フラグが立っている間は
+    LLM の呼び出し(背景画像のプロンプトなど)は GPU での起動を待つ。フラグは /api/status が完了を返したとき、
+    generate_and_wait の終了時、タスク作成に失敗したときに下ろす(保険として 20 分で自動解除)。
+    LOCAL_LLM_STOP_BEFORE_ACE=0 で停止も待ちも無効。生成中フラグは task_id が返ったあと _ace_started() で立てる。
     """
     try:
         from services.local_llm_service import local_llm_service
@@ -33,8 +35,23 @@ async def _release_local_llm() -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[generate] could not stop local LLM: {e}")
 
-# SFT モデルのバッチサイズ上限（VRAM 安全対策: CFGありで実効バッチ×2のため）
-SFT_MAX_BATCH_SIZE = 2
+
+def _ace_started() -> None:
+    """ACE タスクが作れたときに呼ぶ(task_id が返った後)。この間、同梱 LLM は GPU で起こさない。"""
+    try:
+        from services.local_llm_service import local_llm_service
+        local_llm_service.ace_started()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _ace_finished() -> None:
+    """ACE タスクが終わった(成功・失敗・作成失敗)ときに呼ぶ。LLM の GPU 起動を再び許す。"""
+    try:
+        from services.local_llm_service import local_llm_service
+        local_llm_service.ace_finished()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def clamp_batch_for_sft(model: Optional[str], batch_size: int) -> int:
@@ -230,6 +247,7 @@ async def generate_music(request: GenerateRequest):
         if not task_id:
             raise HTTPException(status_code=500, detail="Failed to create task")
         
+        _ace_started()
         return GenerateResponse(
             task_id=task_id,
             status="queued",
@@ -290,6 +308,8 @@ async def get_task_status(task_id: str):
         
         status_map = {0: "processing", 1: "succeeded", 2: "failed"}
         status_text = status_map.get(status, "unknown")
+        if status in (1, 2):
+            _ace_finished()
         
         # サーバが進捗を送る場合はそのまま転送（将来対応）
         server_progress = task_data.get("progress")
@@ -399,11 +419,15 @@ async def generate_and_wait(request: GenerateAndWaitRequest):
                 error="Failed to create task"
             )
         
-        # 完了を待機
-        task_results = await ace_step_client.wait_for_completion(
-            task_id=task_id,
-            timeout=request.timeout
-        )
+        # 完了を待機(この間 LLM は GPU で起こさない)
+        _ace_started()
+        try:
+            task_results = await ace_step_client.wait_for_completion(
+                task_id=task_id,
+                timeout=request.timeout
+            )
+        finally:
+            _ace_finished()
         
         # 結果を整形
         results = []
@@ -682,6 +706,7 @@ async def generate_cover(
         if not task_id:
             raise HTTPException(status_code=500, detail="Failed to create cover task")
 
+        _ace_started()
         return GenerateResponse(
             task_id=task_id,
             status="queued",
@@ -796,6 +821,7 @@ async def generate_repaint(
         if not task_id:
             raise HTTPException(status_code=500, detail="Failed to create repaint task")
 
+        _ace_started()
         return GenerateResponse(
             task_id=task_id,
             status="queued",

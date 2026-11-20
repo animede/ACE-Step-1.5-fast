@@ -122,7 +122,7 @@ const I18N = {
         ace_model_sft: 'SFT (高品質)',
         ace_model_base: 'Base (標準)',
         ace_model_loading: '読み込み中...',
-        ace_model_fallback: 'TURBO (デフォルト)',
+        ace_model_fallback: 'サーバの既定モデル（一覧取得失敗）',
         ace_model_not_loaded: '(未読込・選ぶと切替)',
         ace_model_no_vram: '(このGPUには載らない)',
         status_model_loading: '⏳ モデルを読み込んで切り替えています(数十秒〜1分)…',
@@ -298,7 +298,7 @@ const I18N = {
         ace_model_sft: 'SFT (High Quality)',
         ace_model_base: 'Base (Standard)',
         ace_model_loading: 'Loading...',
-        ace_model_fallback: 'TURBO (Default)',
+        ace_model_fallback: 'Server default model (list unavailable)',
         ace_model_not_loaded: '(not loaded, loads on select)',
         ace_model_no_vram: '(does not fit this GPU)',
         status_model_loading: '⏳ Loading and switching model (tens of seconds)…',
@@ -826,6 +826,7 @@ function getAceModel() {
 async function ensureAceModelLoaded() {
     const sel = document.getElementById('simple-ace-model');
     const opt = sel && sel.options[sel.selectedIndex];
+    if (opt && !opt.value) { loadAvailableModels().catch(() => {}); return; }  // 一覧取得に失敗していた: 既定で生成しつつ再取得
     if (!opt || !opt.value || opt.dataset.loaded !== '0') return;
     showSimpleStatus(t('status_model_loading'), 'info');
     const r = await apiRequest('/api/models/load', 'POST', { model: opt.value });
@@ -927,20 +928,15 @@ async function loadAvailableModels() {
         applyModelBatchRestriction();
 
     } catch (e) {
-        console.warn('[EasyMusic] Failed to load models, using fallback:', e.message);
+        console.warn('[EasyMusic] Failed to load models, using server default:', e.message);
         sel.innerHTML = '';
-        // フォールバック: XLモデルのデフォルト選択肢
-        const fallbacks = [
-            { value: 'acestep-v15-xl-turbo', label: t('ace_model_turbo') },
-            { value: 'acestep-v15-xl-sft',   label: t('ace_model_sft') },
-        ];
-        fallbacks.forEach((fb, i) => {
-            const opt = document.createElement('option');
-            opt.value = fb.value;
-            opt.textContent = fb.label;
-            if (i === 0) opt.selected = true;
-            sel.appendChild(opt);
-        });
+        // フォールバック: モデル名を送らない(= サーバの既定モデル)。以前は XL の名前を固定で入れていたが、
+        // 12gb プロファイルのサーバには無いモデルで、今のサーバは未読込モデルを黙って置き換えずエラーにする
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = t('ace_model_fallback');
+        opt.selected = true;
+        sel.appendChild(opt);
     }
 }
 

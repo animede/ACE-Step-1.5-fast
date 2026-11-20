@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-20 21:10 JST** — Easy Music の同梱 LLM(Gemma 4 E4B)が GPU で動くように(llama.cpp の CUDA 版を自動取得、空き VRAM に入る層だけ載せ、ACE に投げる直前に止めて VRAM を返す)。テーマ・歌詞・キャプションを LLM 1 回でまとめて作る経路を追加。起動時に VRAM からプロファイルを自動選択(14GB 未満は `12gb`)。Easy Music のモデル選択を本物に(未読込は選ぶと切替、載らないものは選べない、サーバは未読込モデルを黙って置き換えない)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-20 22:05 JST** — 同梱 LLM の GPU 実行を修正: 生成タスクを作った直後の背景画像プロンプト生成が止めたはずの llama-server を GPU で起こし直し、ACE の拡散と VRAM を取り合って生成エラーになっていた。ACE の生成中は LLM の起動を待たせる。モデル一覧が取れないときのプルダウンは XL 名ではなく「サーバの既定」を送る。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -166,7 +166,7 @@ cd ACE-Step-1.5-fast
 ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_easy_music.sh 8890`。
 
 - 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは同梱の GGUF(Gemma 4 E4B Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)にフォールバックします。同梱 LLM の実体は llama.cpp の GitHub Releases にあるビルド済み `llama-server`(固定タグ b12475)で、初回のフォールバック時に `easy-music/tools/llama/` へ自動取得して子プロセスとして起動します(コンパイラ不要。`easy-music/.venv/bin/python easy-music/scripts/fetch_llama_server.py` で事前取得も可、`--cpu` で CPU 版)。既存のバイナリや GGUF を使うなら環境変数 `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)で指定できます。
-- **同梱 LLM の GPU 実行**(`LOCAL_LLM_GPU=auto`、既定): nvidia-smi が見える x64 の Windows / Linux では CUDA 版の `llama-server`(本体 + cudart、合計 0.6〜0.8GB)を取り、llama.cpp の `--fit` で**空き VRAM に入る層だけ** GPU に載せます(全部載ると約 3GB + KV)。ACE サーバが `12gb` プロファイルで待機している 3060 12GB でも同居でき、CPU(i3-10105)で 1 分 20 秒かかっていた歌詞が十数秒になります。ACE に生成を投げる直前に `llama-server` を止めて VRAM を返し(拡散のピーク 8.5GB のため)、次に LLM が要るときに起こし直します(ページキャッシュから数秒)。`LOCAL_LLM_GPU=off` で従来の CPU 版、`all` / 層数で固定、`LOCAL_LLM_STOP_BEFORE_ACE=0` で停止を無効(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+- **同梱 LLM の GPU 実行**(`LOCAL_LLM_GPU=auto`、既定): nvidia-smi が見える x64 の Windows / Linux では CUDA 版の `llama-server`(本体 + cudart、合計 0.6〜0.8GB)を取り、llama.cpp の `--fit` で**空き VRAM に入る層だけ** GPU に載せます(全部載ると約 3GB + KV)。ACE サーバが `12gb` プロファイルで待機している 3060 12GB でも同居でき、CPU(i3-10105)で 1 分 20 秒かかっていた歌詞が十数秒になります。ACE に生成を投げる直前に `llama-server` を止めて VRAM を返し(拡散のピーク 8.5GB のため)、ACE のタスクが終わる(`/api/status` が完了を返す)までは LLM の呼び出し(背景画像のプロンプト、曲名など)があっても GPU で起こさず待たせます。終わったあと次に LLM が要るときに起こし直します(ページキャッシュから数秒)。`LOCAL_LLM_GPU=off` で従来の CPU 版、`all` / 層数で固定、`LOCAL_LLM_STOP_BEFORE_ACE=0` で停止を無効(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
 - **LLM 呼び出しを 1 回に**: 簡単モードでテーマも歌詞も空のまま生成を押すと、テーマ・歌詞・キャプションを 1 回の LLM 呼び出しでまとめて作ります(`/api/song_plan`)。3 回に分けると CPU 推論では毎回の入力の読み込み(20〜30 秒)が支配的になるためで、同じ文脈で書くので歌詞とキャプションの整合も良くなります。失敗したときは従来のテーマ → 歌詞 → キャプションの 3 段階に戻ります。テーマだけ・歌詞だけの作り直しボタンは従来どおりです。
 
 **LLM の指定方法**(起動引数 > `easy-music/.env` > 既定値 `http://localhost:11434/v1` の順に優先):

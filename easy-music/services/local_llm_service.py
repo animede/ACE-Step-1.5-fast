@@ -57,7 +57,8 @@ LOGS_DIR = os.path.join(APP_DIR, "logs")
 DEFAULT_TAG = "b12475"      # 2026-11-17 に Gemma 4 E4B Q4_0 で動作確認(Linux x64 / Windows x64 の CPU 版)
 CUDA_WIN = "12.4"          # Windows 用 CUDA ビルドの CUDA 版数(ドライバ 550 以上。ACE-Step 自体が 12.8 対応ドライバを要求するので満たす)
 CUDA_LINUX = "12.8"        # Linux 用
-FIT_TARGET_MIB = 768       # --fit が GPU に残す余白(MiB)。ACE の待機分はすでに確保済みなので小さくてよい
+FIT_TARGET_MIB = 1536      # --fit が GPU に残す余白(MiB)。ACE の待機分はすでに確保済みだが、LLM と同時に動く ACE の LM(format_input)の分を残す
+ACE_BUSY_MAX_S = 1200      # ACE の生成中フラグの最長(クライアントが status を取りに来なくなったときの保険)
 DEFAULT_PORT = 11440
 N_CTX = 8192                # システムプロンプト + 歌詞に十分
 HEALTH_TIMEOUT_S = 300      # 初回はモデルの読み込みに時間がかかる
@@ -345,6 +346,10 @@ class LocalLLMService:
         self._external_on_port = False
         self._gpu = False            # 今の子プロセスが CUDA 版か
         self._starts = 0
+        self._ace_jobs = 0           # Easy Music が投げて未完了の ACE タスク数(この間は GPU で起こさない)
+        self._ace_last = 0.0
+        self._ace_idle = threading.Event()
+        self._ace_idle.set()
         atexit.register(self.stop)
 
     @property
@@ -410,6 +415,44 @@ class LocalLLMService:
         self.stop()
         raise RuntimeError(f"llama-server did not become healthy within {HEALTH_TIMEOUT_S}s")
 
+    # ---- ACE の生成中は GPU で起こさない -------------------------------------------------
+    # 生成タスクを作った直後に背景画像のプロンプト生成などが LLM を呼ぶため、止めた直後に GPU で起き直して
+    # ACE の拡散(12GB で約 8.5GB)と VRAM を取り合い OOM になる。ACE が終わるまでここで待たせる。
+    def ace_started(self) -> None:
+        with self._lock:
+            self._ace_jobs += 1
+            self._ace_last = time.time()
+            self._ace_idle.clear()
+
+    def ace_finished(self) -> None:
+        with self._lock:
+            self._ace_jobs = max(0, self._ace_jobs - 1)
+            if self._ace_jobs == 0:
+                self._ace_idle.set()
+
+    def _ace_busy(self) -> bool:
+        if self._ace_jobs <= 0:
+            return False
+        if time.time() - self._ace_last > ACE_BUSY_MAX_S:  # 取りに来ないクライアント: 期限切れで解除
+            with self._lock:
+                self._ace_jobs = 0
+                self._ace_idle.set()
+            return False
+        return True
+
+    def _wait_for_ace_idle(self) -> None:
+        """GPU モードで、子プロセスが居らず ACE が生成中なら、終わるまで起動を待つ(最長 ACE_BUSY_MAX_S)。"""
+        if not self._ace_busy() or self._running() or not use_gpu():
+            return
+        setting = (os.environ.get("LOCAL_LLM_STOP_BEFORE_ACE", "").strip() or "auto").lower()
+        if setting in ("0", "off", "false", "no"):
+            return
+        logger.info("ローカルLLM: ACE が生成中なので GPU での起動を待ちます(未完了 %d 件)", self._ace_jobs)
+        t0 = time.time()
+        while self._ace_busy():
+            self._ace_idle.wait(timeout=1.0)
+        logger.info("ローカルLLM: ACE 完了、起動します(%.0fs 待ち)", time.time() - t0)
+
     def release_before_ace(self) -> bool:
         """ACE に生成を投げる直前に呼ぶ。CUDA 版の子プロセスが居れば止めて VRAM を返す(次の呼び出しで起こし直す)。
 
@@ -462,6 +505,7 @@ class LocalLLMService:
         return await loop.run_in_executor(None, self._generate_sync, user_message, system_prompt, max_tokens, temperature)
 
     def _generate_sync(self, user_message: str, system_prompt: str, max_tokens: int, temperature: float) -> str:
+        self._wait_for_ace_idle()
         with self._lock:
             try:
                 base = self._ensure_running_locked()
@@ -508,6 +552,7 @@ class LocalLLMService:
             "gpu_setting": gpu_setting(),
             "free_vram_mib": nvidia_free_mib(),
             "starts": self._starts,
+            "ace_jobs_in_flight": self._ace_jobs,
         }
 
 
