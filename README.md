@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-20 16:16 JST** — 起動バッチが未完成の venv を検出して「.\setup.bat を実行」とだけ出すように(新規 PC では uv 導入後にもう一度必要)。README の Windows 手順を `.\` 付きに。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-20 18:15 JST** — RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows ノート PC で動作を確認(`int8_weight_only` を最初から指定する 8GB の起動手順を正式化。3 分 19 秒の曲をローカル LLM 込みで 2 分 50 秒)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -90,7 +90,19 @@ cd ACE-Step-1.5-fast
 `easy-music\.env` に書く場合は `OPENAI_BASE_URL=http://LLM_HOST:11434/v1`、`OPENAI_API_KEY=YOUR_KEY`、`OPENAI_CHAT_MODEL=gemma3:latest`(起動引数が優先)。ACE サーバは `--ace-url`、背景画像サーバは `--img-url` で同様に指定できる。
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
-- 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください(同じ作りの [minimax-h3](https://github.com/animede/Diffusers_minimax-h3) の Windows 実機で見つかった問題、HF キャッシュの symlink 競合・winget のソース指定・バッチの改行コード・`python -c` の引用符は、こちらにも反映済み)。
+- 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large`(PowerShell は `$env:ACESTEP_GPU_PROFILE = "large"`)のように指定。
+- **RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows ノート PC** で、セットアップから Easy Music での生成まで動作を確認済み(下の[8GB で動かす場合](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)の 5 つの環境変数を最初から全部入れて起動。3 分 19 秒の曲をローカル LLM 込みで 2 分 50 秒、CPU 負荷は 65% 前後)。環境変数を付けずに起動すると、VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなってフロントがタイムアウトする。
+
+```powershell
+$env:ACESTEP_GPU_PROFILE = "12gb"
+$env:ACESTEP_LM_OFFLOAD_TO_CPU = "1"
+$env:ACESTEP_RESIDENT_COMPONENTS = ""
+$env:ACESTEP_VAE_DECODE_CHUNK_SIZE = "128"
+$env:ACESTEP_QUANTIZATION = "int8_weight_only"
+.\run_api_server_fast.bat
+```
+
+- 問題があれば Issue で報告してください(同じ作りの [minimax-h3](https://github.com/animede/Diffusers_minimax-h3) の Windows 実機で見つかった問題、HF キャッシュの symlink 競合・winget のソース指定・バッチの改行コード・`python -c` の引用符は、こちらにも反映済み)。
 
 ## 起動
 
@@ -98,6 +110,8 @@ cd ACE-Step-1.5-fast
 ./run_api_server_fast.sh                             # 16GB 級(既定): XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
 ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも GPU に常駐、LM 4B、退避なし
 ACESTEP_GPU_PROFILE=12gb ./run_api_server_fast.sh    # 12GB 級(RTX 3060 12GB など): 2B turbo 常駐 + 2B base を要求時に入れ替え、XL は使わない
+# 8GB 級(RTX 4060 Laptop 8GB / RAM 16GB(DDR5-4800)の Windows で確認済み): 12gb をもとに LM・VAE を退避、decode chunk 128、2B を int8 に。詳細は「必要 VRAM の目安」
+ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
 CUDA_VISIBLE_DEVICES=1 ./run_api_server_fast.sh      # 複数 GPU の機械で 2 枚目を使う(番号は nvidia-smi -L)
 ./close_api_server.sh --port 8001                    # 停止
 ```
@@ -192,16 +206,19 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
 - 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。
-- **8GB で動かす場合(未確認)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。計算上は次の指定で 6.5〜7.3GB まで下がる。実機では未確認で、8GB カードは表示用に 0.5〜1GB 取られるので余裕は 1GB 前後。短い曲(60〜120 秒)向け。
+- **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つを**最初から全部**指定する(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して、極端に遅くなってフロントがタイムアウトする)。実測は 3 分 19 秒の曲を、歌詞生成のローカル LLM 込みで 2 分 50 秒(CPU 負荷は 65% 前後。LM と歌詞の LLM が CPU 側で動くため、CPU の弱い機械ではここが延びる)。曲の長さより短い時間で作れるので、連続生成(1 曲流している間に次を作る)が成り立つ。
 
   ```bash
-  ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ./run_api_server_fast.sh
+  ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
   ```
 
-  - `ACESTEP_LM_OFFLOAD_TO_CPU=1`: LM(CoT)を拡散の前だけ GPU に置く。ピークは LM の段と拡散の段の大きい方になり、拡散の段は約 7.3GB。CoT を使わないなら `ACESTEP_INIT_LLM=0` で LM 自体を読まない。
+  Windows(PowerShell)は上の[Windows の場合](#windows-の場合)にある `$env:` 形式の 5 行。
+
+  - `ACESTEP_LM_OFFLOAD_TO_CPU=1`: LM(CoT)を拡散の前だけ GPU に置く。ピークは LM の段と拡散の段の大きい方になる。CoT を使わないなら `ACESTEP_INIT_LLM=0` で LM 自体を読まない。
   - `ACESTEP_RESIDENT_COMPONENTS=`(空): VAE も要求時だけ GPU へ(−0.3GB、1 曲あたり +1 秒程度)。
   - `ACESTEP_VAE_DECODE_CHUNK_SIZE=128`: decode のピークを −0.5GB(decode が約 2 秒遅くなる)。
-  - それでも足りなければ `ACESTEP_QUANTIZATION=int8_weight_only`(2B の重み 4.8 → 2.4GB。速くはならず、音も bf16 と少し変わる)。
+  - `ACESTEP_QUANTIZATION=int8_weight_only`: 2B の重みを 4.8 → 2.4GB に。8GB ではこれが無いと足りない。速くはならず、音は bf16 と少し変わる。
+  - RAM 16GB では Easy Music のローカル LLM(Gemma 4 E4B、約 4.4GB)と ACE サーバ(常駐約 4GB)が同居してぎりぎりなので、他の大きなアプリは閉じておく。
 
 ## 文書
 

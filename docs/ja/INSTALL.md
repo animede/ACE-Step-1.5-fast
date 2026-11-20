@@ -6,7 +6,7 @@
 
 | 項目 | 目安 |
 |---|---|
-| GPU | 16GB(A4000 級)で XL を実行可。40GB 以上なら `ACESTEP_GPU_PROFILE=large` で全モデル常駐。12GB(RTX 3060 12GB など)は `ACESTEP_GPU_PROFILE=12gb` で 2B のみ(ピーク約 8.5GB) |
+| GPU | 16GB(A4000 級)で XL を実行可。40GB 以上なら `ACESTEP_GPU_PROFILE=large` で全モデル常駐。12GB(RTX 3060 12GB など)は `ACESTEP_GPU_PROFILE=12gb` で 2B のみ(ピーク約 8.5GB)。8GB は `12gb` に LM・VAE の退避、decode chunk 128、`ACESTEP_QUANTIZATION=int8_weight_only` を足す(README「必要 VRAM の目安」、RTX 4060 Laptop 8GB / RAM 16GB(DDR5-4800)の Windows で確認済み) |
 | ホストメモリ | 32GB 以上(16gb プロファイルの常駐は約 4GB + ページキャッシュ) |
 | ディスク | 環境 約 8GB、チェックポイント 約 45GB(xl-sft 19 / xl-turbo 19 / 2B turbo 4.5 / LM 0.6B 1.3 / VAE・テキストエンコーダ 1.5)、退避用キャッシュ 24GB |
 | ネットワーク | 初回に Hugging Face(失敗時 ModelScope)から取得 |
