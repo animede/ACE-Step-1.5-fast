@@ -64,7 +64,7 @@
     } catch (e) { status($("residency-mode"), "取得できません: " + e.message, "err"); }
     try {
       const inv = await api("/v1/model_inventory"); const sel = $("inventory"); sel.innerHTML = "";
-      for (const m of (inv.models || [])) { const o = document.createElement("option"); o.value = m.name; o.textContent = m.name + (m.is_loaded ? "(読込済)" : ""); sel.appendChild(o); }
+      for (const m of (inv.models || [])) { const o = document.createElement("option"); o.value = m.name; o.textContent = m.name + (m.is_loaded ? "(読込済)" : "") + (m.vram_ok === false ? "(このGPUには載らない: 約" + m.min_vram_gb + "GB必要)" : ""); o.disabled = m.vram_ok === false; sel.appendChild(o); }
     } catch (e) { /* inventory endpoint missing */ }
   }
   $("btn-residency").onclick = refreshResidency;

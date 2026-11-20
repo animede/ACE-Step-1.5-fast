@@ -52,6 +52,7 @@ const I18N = {
         // Status messages
         status_no_input: 'テーマ、歌詞、またはジャンルのいずれかを入力してください',
         status_theme_gen: '💡 テーマを生成中...',
+        status_plan_ai: '✨ テーマ・歌詞・キャプションをまとめて作成中（LLM 1 回）...',
         status_lyrics_gen: '歌詞を生成中...',
         status_lyrics_ai: '📝 AI作詞中...（外部LLM接続不可時はローカルLLMで生成）',
         status_lyrics_ready: '✅ 歌詞を生成しました',
@@ -122,6 +123,10 @@ const I18N = {
         ace_model_base: 'Base (標準)',
         ace_model_loading: '読み込み中...',
         ace_model_fallback: 'TURBO (デフォルト)',
+        ace_model_not_loaded: '(未読込・選ぶと切替)',
+        ace_model_no_vram: '(このGPUには載らない)',
+        status_model_loading: '⏳ モデルを読み込んで切り替えています(数十秒〜1分)…',
+        status_model_load_fail: 'モデルの切り替えに失敗: ',
         label_steps: 'STEP',
         label_thinking: 'Thinking',
         steps_8: '8 (Turbo)', steps_20: '20 (高速)', steps_50: '50 (標準)', steps_80: '80 (高品質)', steps_100: '100 (最高品質)',
@@ -243,6 +248,7 @@ const I18N = {
         debug_lang: 'Language', debug_params: 'Parameters',
         status_no_input: 'Please enter a theme, lyrics, or select a genre',
         status_theme_gen: '💡 Generating theme...',
+        status_plan_ai: '✨ Writing theme, lyrics and caption in one LLM call...',
         status_lyrics_gen: 'Generating lyrics...',
         status_lyrics_ai: '📝 AI writing lyrics... (falls back to local LLM if external unavailable)',
         status_lyrics_ready: '✅ Lyrics generated',
@@ -293,6 +299,10 @@ const I18N = {
         ace_model_base: 'Base (Standard)',
         ace_model_loading: 'Loading...',
         ace_model_fallback: 'TURBO (Default)',
+        ace_model_not_loaded: '(not loaded, loads on select)',
+        ace_model_no_vram: '(does not fit this GPU)',
+        status_model_loading: '⏳ Loading and switching model (tens of seconds)…',
+        status_model_load_fail: 'Model switch failed: ',
         label_steps: 'STEP',
         label_thinking: 'Thinking',
         steps_8: '8 (Turbo)', steps_20: '20 (Fast)', steps_50: '50 (Standard)', steps_80: '80 (High Quality)', steps_100: '100 (Best Quality)',
@@ -808,6 +818,24 @@ function getAceModel() {
     return val || null;
 }
 
+/**
+ * 選択中のモデルがサーバのスロットに読み込まれていなければ、生成前に読み込んで切り替える。
+ * サーバは読み込んでいないモデルの要求を(黙って既定に置き換えずに)エラーにするので、ここで先に載せる。
+ * 失敗時は理由(VRAM 不足、スロット無し)を Error で投げる。呼び出し側の catch がそのまま表示する。
+ */
+async function ensureAceModelLoaded() {
+    const sel = document.getElementById('simple-ace-model');
+    const opt = sel && sel.options[sel.selectedIndex];
+    if (!opt || !opt.value || opt.dataset.loaded !== '0') return;
+    showSimpleStatus(t('status_model_loading'), 'info');
+    const r = await apiRequest('/api/models/load', 'POST', { model: opt.value });
+    if (!r || !r.success) throw new Error(t('status_model_load_fail') + ((r && r.error) || 'unknown'));
+    console.log('[EasyMusic] model loaded:', r.model, 'slot', r.slot);
+    const keep = opt.value;
+    await loadAvailableModels();
+    if (sel) sel.value = keep;
+}
+
 // =============================================================================
 // Dynamic Model Loading — サーバーから利用可能モデルを取得して選択肢を構築
 // =============================================================================
@@ -875,8 +903,11 @@ async function loadAvailableModels() {
             const opt = document.createElement('option');
             opt.value = m.name;
             let label = getModelDisplayLabel(m.name);
-            // is_loaded が明示的に false の場合のみ⳻マーク
-            if (m.is_loaded === false) label += ' ⏳';
+            opt.dataset.loaded = (m.is_loaded !== false) ? '1' : '0';
+            // 読み込み済みでないモデルは選んだ時点(生成開始時)で /api/models/load が読み込んで切り替える
+            if (m.is_loaded === false) label += ' ' + t('ace_model_not_loaded');
+            // サーバが VRAM に載らないと判定したモデルは選べない(/v1/models の vram_ok)
+            if (m.vram_ok === false) { opt.disabled = true; label += ' ' + t('ace_model_no_vram'); }
             opt.textContent = label;
             // デフォルトモデルまたはロード済みturboを選択
             if (m.name === defaultModel || (m.is_default && sorted.indexOf(m) === 0)) {
@@ -1450,6 +1481,7 @@ async function generateCover() {
     showSimpleStatus(t('status_cover_generating'), 'info');
 
     try {
+        await ensureAceModelLoaded();
         const formData = new FormData();
         formData.append('src_audio', coverFile);
         formData.append('prompt', sanitizeCaption(document.getElementById('cover-caption').value.trim()));
@@ -1530,6 +1562,7 @@ async function generateRepaint() {
     showSimpleStatus(t('status_repaint_generating'), 'info');
 
     try {
+        await ensureAceModelLoaded();
         const formData = new FormData();
         formData.append('src_audio', repaintFile);
         formData.append('repainting_start', String(start));
@@ -1672,6 +1705,7 @@ async function generateOmakase(query) {
     showSimpleStatus(t('status_omakase'), 'info');
 
     try {
+        await ensureAceModelLoaded();
         const aceModel = getAceModel();
         const params = {
             prompt: '', // sample_query が全て決定するため空
@@ -1894,6 +1928,46 @@ async function generateSimple() {
     hideSimpleStatus();
 
     try {
+        // ---- Step -1: 一括プラン（テーマ・歌詞が空でジャンル選択済み → LLM 1 回でテーマ+歌詞+キャプション） ----
+        // 3 回に分けると CPU 推論では毎回の入力読み込み(20〜30 秒)が支配的になるため。失敗したら従来の Step 0〜2 に落ちる。
+        let planned = null;
+        let effectiveLyrics = lyrics;
+        if (!theme && !lyrics && selectedGenre) {
+            const planBuiltin = document.getElementById('simple-builtin-caption').checked;
+            const planManual = getManualCaption();
+            // キャプションを LLM に頼む経路のときだけ一緒に作る（builtin+thinking=OFF はタグをそのまま使うので作らない）
+            const planWantCaption = !planManual && (planBuiltin ? getThinking() : true);
+            const planHint = selectedGenre.hint || selectedGenre.name;
+            const planBlend = selectedBlendGenre ? (selectedBlendGenre.hint || selectedBlendGenre.name) : '';
+            showSimpleProgress(0, t('status_plan_ai'));
+            showSimpleStatus(t('status_plan_ai'), 'info');
+            try {
+                const plan = await apiRequest('/api/song_plan', 'POST', {
+                    genre: selectedGenre.name,
+                    language: getSelectedLanguageName(),
+                    mood: getMood(),
+                    vocal: isInst ? '' : getVocal(),
+                    tags: planBlend ? `${planHint} with ${planBlend} influences` : planHint,
+                    want_lyrics: !isInst,
+                    want_caption: planWantCaption,
+                    thinking: getThinking(),
+                });
+                if (plan.success && plan.theme) {
+                    planned = plan;
+                    theme = plan.theme;
+                    document.getElementById('simple-theme').value = theme;
+                    if (!isInst && plan.lyrics) {
+                        effectiveLyrics = plan.lyrics;
+                        document.getElementById('simple-lyrics').value = effectiveLyrics;
+                    }
+                    console.log('[EasyMusic] Step-1: song plan ok theme=', theme, 'lyrics=', (plan.lyrics || '').length, 'caption=', (plan.caption || '').length);
+                } else {
+                    console.warn('[EasyMusic] Step-1: song plan unavailable, falling back to 3 steps:', plan.error);
+                }
+            } catch (e) {
+                console.warn('[EasyMusic] Step-1: song plan failed, falling back to 3 steps:', e);
+            }
+        }
         // ---- Step 0: テーマ自動生成（テーマ・歌詞が空でジャンル選択済み） ----
         if (!theme && !lyrics && selectedGenre) {
             showSimpleStatus(t('status_theme_gen'), 'info');
@@ -1915,12 +1989,11 @@ async function generateSimple() {
             document.getElementById('simple-theme').value = theme;
         }
         // ---- Step 1: 歌詞の確定 ----
-        let effectiveLyrics = lyrics;
         console.log('[EasyMusic] Step1: isInst=', isInst, 'lyrics.length=', lyrics.length, 'effectiveLyrics=', effectiveLyrics.substring(0, 50));
         if (isInst) {
             effectiveLyrics = '[inst]';
             console.log('[EasyMusic] Step1: instrumental mode → [inst]');
-        } else if (!lyrics) {
+        } else if (!effectiveLyrics) {
             // 歌詞が空 → AI作詞
             console.log('[EasyMusic] Step1: lyrics empty → generating via API...');
             showSimpleProgress(0, t('status_lyrics_gen'));
@@ -1958,7 +2031,16 @@ async function generateSimple() {
         console.log('[EasyMusic] Step2: language=', selectedLangCode, selectedLangName, 'builtin=', useBuiltinCaption, 'manual=', !!manualCaption);
         let caption = '';
         let rawTags = '';  // デバッグ表示用
-        if (manualCaption) {
+        if (planned && planned.caption && !manualCaption) {
+            // 一括プランで作ったキャプション（builtin 経路と同じ後処理を掛ける）
+            caption = planned.caption;
+            rawTags = selectedGenre ? (selectedGenre.hint || selectedGenre.name) : '';
+            if (useBuiltinCaption) {
+                if (selectedLangCode !== 'ja' && !isInst) caption += '. Sung in ' + selectedLangName + '.';
+                if (isInst && caption && !caption.toLowerCase().includes('instrumental')) caption = 'instrumental, no vocals, ' + caption;
+            }
+            console.log('[EasyMusic] Step2: caption from song plan len=', caption.length);
+        } else if (manualCaption) {
             // 手動キャプション指定: AI生成を完全バイパス
             caption = manualCaption;
             rawTags = '[手動指定]';
@@ -2115,6 +2197,7 @@ async function generateSimple() {
         }
 
         // ---- Step 3: 音楽生成 ----
+        await ensureAceModelLoaded();
         showSimpleProgress(5, t('status_task_create'));
         showSimpleStatus(t('status_generating'), 'info');
 

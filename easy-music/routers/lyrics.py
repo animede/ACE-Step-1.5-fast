@@ -223,6 +223,45 @@ async def get_background_image(image_id: str):
     return FileResponse(image_path, media_type="image/png")
 
 
+class SongPlanRequest(BaseModel):
+    """テーマ・歌詞・キャプションを 1 回の LLM 呼び出しで作る(簡単モードで全部空のとき)"""
+    genre: str = Field(default="", description="ジャンル")
+    language: str = Field(default="Japanese", description="言語")
+    mood: str = Field(default="", description="ムード")
+    vocal: str = Field(default="", description="ボーカルタイプ")
+    tags: str = Field(default="", description="ジャンルのスタイルヒント(キャプション用)")
+    want_lyrics: bool = Field(default=True, description="歌詞も作る(インストなら False)")
+    want_caption: bool = Field(default=True, description="キャプションも作る")
+    thinking: bool = Field(default=True, description="True=1 文キャプション / False=詳細キャプション")
+
+
+class SongPlanResponse(BaseModel):
+    success: bool
+    theme: str = ""
+    lyrics: str = ""
+    recommended_duration: int = 90
+    parts: Dict[str, int] = {}
+    caption: str = ""
+    error: Optional[str] = None
+
+
+@router.post("/song_plan", response_model=SongPlanResponse)
+async def song_plan(request: SongPlanRequest):
+    """テーマ・歌詞・キャプションを 1 回でまとめて生成(失敗時 success=False → フロントは 3 段階にフォールバック)"""
+    try:
+        r = await llm_service.generate_song_plan(
+            genre=request.genre, language=request.language, mood=request.mood, vocal=request.vocal,
+            tags=request.tags, want_lyrics=request.want_lyrics, want_caption=request.want_caption,
+            thinking=request.thinking,
+        )
+        return SongPlanResponse(success=True, theme=r["theme"], lyrics=r.get("lyrics", ""),
+                                recommended_duration=int(r.get("recommended_duration", 90) or 90),
+                                parts={k: int(v) for k, v in (r.get("parts") or {}).items() if isinstance(v, (int, float))},
+                                caption=r.get("caption", ""))
+    except Exception as e:
+        return SongPlanResponse(success=False, error=str(e))
+
+
 @router.post("/theme", response_model=ThemeGenerateResponse)
 async def generate_theme(request: ThemeGenerateRequest):
     """

@@ -694,20 +694,10 @@ IMPORTANT: Do NOT add romanization or pronunciation in parentheses. Output lyric
             "key_scale": "C major"
         }
 
-    async def generate_theme(
-        self,
-        genre: str = "",
-        language: str = "Japanese"
-    ) -> str:
-        """
-        ジャンルと言語からLLMで曲のテーマ/シナリオを生成
+    def _theme_inspiration(self, genre: str) -> Dict[str, Any]:
+        """ジャンルから、テーマ生成に使う世界観(vibe)と、ランダムな場面・感情・切り口を選ぶ。
 
-        Args:
-            genre: ジャンル
-            language: 言語
-
-        Returns:
-            テーマ文字列
+        generate_theme と generate_song_plan(1 回の呼び出しでテーマ・歌詞・キャプションを作る)で共用。
         """
         import random
 
@@ -996,6 +986,25 @@ IMPORTANT: Do NOT add romanization or pronunciation in parentheses. Output lyric
             "as a single unforgettable image", "as a question with no answer",
         ]
         angle = random.choice(angles_pool)
+        return {"genre_key": genre_key, "ctx": ctx, "setting": setting, "emotion": emotion, "angle": angle}
+
+    async def generate_theme(
+        self,
+        genre: str = "",
+        language: str = "Japanese"
+    ) -> str:
+        """
+        ジャンルと言語からLLMで曲のテーマ/シナリオを生成
+
+        Args:
+            genre: ジャンル
+            language: 言語
+
+        Returns:
+            テーマ文字列
+        """
+        insp = self._theme_inspiration(genre)
+        genre_key, ctx, setting, emotion, angle = insp["genre_key"], insp["ctx"], insp["setting"], insp["emotion"], insp["angle"]
 
         system_prompt = f"""You are a music theme generator specialized in {genre_key} music.
 Generate a single short, vivid song theme/scenario (3-10 words MAX) that perfectly fits the {genre_key} genre.
@@ -1027,25 +1036,122 @@ Generate one original {genre_key} song theme:""".strip()
                 max_tokens=60,
                 temperature=1.2
             )
-            # 余分なクォートや改行を除去
-            theme = response.strip().strip('"').strip("'").strip()
-            # 複数行が返った場合は最初の行だけ
-            if '\n' in theme:
-                theme = theme.split('\n')[0].strip()
-            # 括弧内のローマ字/翻訳を除去
-            import re
-            theme = re.sub(r'\s*[\(（].*?[\)）]\s*$', '', theme).strip()
-            # 長すぎる場合は句読点で切る
-            if len(theme) > 30:
-                for sep in ['、', '。', '，', ', ', '. ']:
-                    if sep in theme[:30]:
-                        theme = theme[:theme.index(sep, 0, 30)].strip()
-                        break
-            return theme
+            return self._clean_theme(response)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Theme generation failed: {e}")
             return genre or "music"
+
+
+    @staticmethod
+    def _clean_theme(response: str) -> str:
+        """テーマ応答の掃除: クォート・複数行・括弧内のローマ字を除き、長すぎれば句読点で切る"""
+        theme = response.strip().strip('"').strip("'").strip().lstrip("*").strip()
+        if '\n' in theme:
+            theme = theme.split('\n')[0].strip()
+        theme = re.sub(r'\s*[\(（].*?[\)）]\s*$', '', theme).strip()
+        if len(theme) > 30:
+            for sep in ['、', '。', '，', ', ', '. ']:
+                if sep in theme[:30]:
+                    theme = theme[:theme.index(sep, 0, 30)].strip()
+                    break
+        return theme
+
+    _PLAN_LINE_RE = re.compile(r'^\s*\**\s*(THEME|CAPTION)\s*\**\s*[:：]\s*(.+?)\s*$', re.IGNORECASE)
+
+    def _parse_song_plan(self, response: str, want_lyrics: bool) -> Dict[str, Any]:
+        """THEME: / CAPTION: の行を抜き、残りを歌詞応答としてパースする。足りなければ空文字で返す。"""
+        theme, caption, rest = "", "", []
+        for line in response.strip().split("\n"):
+            m = self._PLAN_LINE_RE.match(line)
+            if m and m.group(1).upper() == "THEME" and not theme:
+                theme = self._clean_theme(m.group(2).strip().strip('"').strip("'"))
+                continue
+            if m and m.group(1).upper() == "CAPTION" and not caption:
+                caption = self._clean_caption(m.group(2).strip().strip('"').strip("'"))
+                continue
+            rest.append(line)
+        result: Dict[str, Any] = {"theme": theme, "caption": caption, "lyrics": "", "recommended_duration": 90, "parts": {}}
+        if want_lyrics:
+            result.update(self._parse_lyrics_response("\n".join(rest)))
+        return result
+
+    async def generate_song_plan(
+        self,
+        genre: str = "",
+        language: str = "Japanese",
+        mood: str = "",
+        vocal: str = "",
+        tags: str = "",
+        want_lyrics: bool = True,
+        want_caption: bool = True,
+        thinking: bool = True,
+    ) -> Dict[str, Any]:
+        """テーマ・歌詞・キャプションを **1 回の LLM 呼び出し** で作る(簡単モードで全部空のまま生成を押したとき)。
+
+        3 回に分けると、CPU 推論では毎回の入力(システムプロンプト約 1000 トークン)の読み込みが 20〜30 秒ずつ
+        かかって支配的になるので、入力を 1 回にまとめる。同じ文脈で書くので歌詞とキャプションの整合も良い。
+        出力は THEME: 行、CAPTION: 行、JSON メタ行、歌詞の順。足りなければ 1 回だけ再試行し、それでも
+        だめなら RuntimeError(呼び出し側は従来の 3 段階にフォールバックする)。
+        """
+        insp = self._theme_inspiration(genre)
+        genre_key = insp["genre_key"]
+        style = tags or genre_key
+        parts = [
+            f"Create a complete song plan in ONE response.",
+            f"Genre: {genre_key}",
+            f"Style hints: {style}",
+            f"Scene inspiration: {insp['setting']}",
+            f"Emotional tone: {insp['emotion']}",
+            f"Creative approach: {insp['angle']}",
+            f"Language of theme and lyrics: {language}",
+            f"Mood: {mood or 'match the theme'}",
+            f"Vocal style: {vocal or 'match the genre'}" if want_lyrics or want_caption else "",
+            "",
+            "OUTPUT FORMAT — exactly these blocks, in this order, nothing else:",
+            f"THEME: <one short, vivid, concrete song theme in {language}, 3-10 words, no quotes, no parentheses; "
+            "avoid overused words: rain, sunset, cherry blossoms, twilight, starlight, moonlight, silhouette, horizon, nostalgia>",
+        ]
+        if want_caption:
+            vocal_part = f'"{vocal}"' if vocal else ("no vocals" if not want_lyrics else "a fitting vocal description")
+            if thinking:
+                parts.append(
+                    f"CAPTION: <ONE English sentence, 30-60 words, template: \"A [genre/era] [song/track] with [mood] and [vocal].\" "
+                    f"Style: {style}. Vocal must be {vocal_part}.{' Mood must be ' + chr(34) + mood + chr(34) + '.' if mood else ''} "
+                    "No tag lists, no instruments>"
+                )
+            else:
+                parts.append(
+                    f"CAPTION: <3-5 English prose sentences (100-200 words) as a full production blueprint: genre+era ({style}), "
+                    f"mood, 2-4 specific instruments and how they are played, rhythm/tempo feel, and the vocal ({vocal_part}). "
+                    "All on ONE line. Never a comma-separated tag list>"
+                )
+        if want_lyrics:
+            parts += [
+                '{"recommended_duration": <seconds>, "parts": {...}}   <- the JSON metadata line, then a blank line',
+                f"<the complete lyrics with ACE-Step structure tags, in {language} ONLY, following the lyricist rules>",
+            ]
+        prompt = "\n".join(x for x in parts if x is not None)
+        system_prompt = (
+            LYRICS_GENERATE_SYSTEM_PROMPT
+            + "\n\nFOR THIS REQUEST ONLY: before the JSON metadata line, output a `THEME:` line"
+            + (" and a `CAPTION:` line" if want_caption else "")
+            + " as specified by the user. Then the JSON line, then the lyrics (if asked). The lyrics must be about the THEME you wrote."
+        )
+        last = None
+        for attempt in range(2):
+            response = await self.chat(user_message=prompt, system_prompt=system_prompt,
+                                       max_tokens=2200 if want_lyrics else 400, temperature=0.9)
+            last = self._parse_song_plan(response, want_lyrics)
+            ok = bool(last["theme"]) and (not want_lyrics or (last["lyrics"] and "[" in last["lyrics"])) \
+                and (not want_caption or bool(last["caption"]))
+            if ok:
+                if want_caption and vocal and vocal.lower() not in last["caption"].lower():
+                    last["caption"] = last["caption"].rstrip('.') + f", with a {vocal}."
+                return last
+            logger.warning("song plan: 出力が不完全(theme=%r caption=%d lyrics=%d)、%s", last["theme"], len(last["caption"]),
+                           len(last["lyrics"]), "再試行" if attempt == 0 else "諦めて 3 段階にフォールバック")
+        raise RuntimeError("song plan incomplete")
 
     async def generate_title(
         self,

@@ -17,6 +17,22 @@ from config import settings
 router = APIRouter(prefix="/api", tags=["generate"])
 logger = logging.getLogger("uvicorn.error")
 
+
+async def _release_local_llm() -> None:
+    """ACE に生成を投げる直前に、同梱 LLM(CUDA 版 llama-server)を止めて VRAM を返す。
+
+    12GB の GPU では ACE の拡散ピーク(約 8.5GB)と E4B(約 3GB+)が同時に入らないため。
+    次に LLM が要るときは自動で起こし直す(ページキャッシュから数秒)。LOCAL_LLM_STOP_BEFORE_ACE=0 で無効。
+    """
+    try:
+        from services.local_llm_service import local_llm_service
+        loop = asyncio.get_event_loop()
+        stopped = await loop.run_in_executor(None, local_llm_service.release_before_ace)
+        if stopped:
+            logger.info("[generate] local LLM stopped before ACE generation (VRAM released)")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[generate] could not stop local LLM: {e}")
+
 # SFT モデルのバッチサイズ上限（VRAM 安全対策: CFGありで実効バッチ×2のため）
 SFT_MAX_BATCH_SIZE = 2
 
@@ -190,6 +206,7 @@ async def generate_music(request: GenerateRequest):
         # SFT モデル選択時のバッチサイズ制限
         effective_batch = clamp_batch_for_sft(request.model, request.batch_size)
 
+        await _release_local_llm()
         result = await ace_step_client.release_task(
             prompt=sanitize_caption(request.prompt),
             lyrics=request.lyrics,
@@ -357,6 +374,7 @@ async def generate_and_wait(request: GenerateAndWaitRequest):
 
         # タスク作成（SFT バッチ制限適用）
         effective_batch = clamp_batch_for_sft(request.model, request.batch_size)
+        await _release_local_llm()
         result = await ace_step_client.release_task(
             prompt=request.prompt,
             lyrics=request.lyrics,
@@ -465,6 +483,62 @@ async def get_models():
         }
     except Exception as e:
         return {"success": False, "error": str(e), "models": [], "default_model": "unknown"}
+
+
+class LoadModelRequest(BaseModel):
+    model: str = Field(..., description="読み込む DiT モデル名(例: acestep-v15-turbo)")
+
+
+def pick_slot_for_model(slots: List[Dict[str, Any]], model: str) -> Optional[int]:
+    """入れ替えに使うスロットを選ぶ。primary(1)は既定の生成に使うので触らない。
+
+    優先: 未読込のスロット → GPU に載っていないスロット → 番号の大きいスロット。
+    スロットが 1 本しか無い(ACESTEP_CONFIG_PATH2 未設定)なら None。
+    """
+    candidates = [s for s in slots if int(s.get("slot", 0)) != 1]
+    if not candidates:
+        return None
+    for s in candidates:
+        if s.get("model") == model:
+            return int(s["slot"])
+    candidates.sort(key=lambda s: (bool(s.get("loaded")), bool(s.get("on_gpu")), -int(s["slot"])))
+    return int(candidates[0]["slot"])
+
+
+@router.post("/models/load")
+async def load_model(req: LoadModelRequest):
+    """プルダウンで選んだモデルがスロットに無いとき、primary 以外のスロットに読み込んで切り替える。
+
+    返り値: {success, loaded, slot, model, message}。VRAM に載らない・スロットが無いときは success=False と理由。
+    """
+    model = (req.model or "").strip()
+    if not model:
+        return {"success": False, "error": "model が空です"}
+    try:
+        inv = (await ace_step_client.get_models()).get("data", {}) or {}
+    except Exception as e:
+        return {"success": False, "error": f"ACE サーバに接続できません: {e}"}
+    entry = next((m for m in inv.get("models", []) if m.get("name") == model), None)
+    if entry is None:
+        return {"success": False, "error": f"{model} は checkpoints/ にありません。setup で取得してください"}
+    if entry.get("is_loaded"):
+        return {"success": True, "loaded": True, "model": model, "slot": None, "message": "読み込み済み"}
+    if entry.get("vram_ok") is False:
+        return {"success": False, "error": f"{model} はこの GPU には載りません(約 {entry.get('min_vram_gb')}GB 必要)。2B 系のモデルを選んでください"}
+    try:
+        slots = ((await ace_step_client.get_residency()).get("data", {}) or {}).get("slots", []) or []
+    except Exception as e:
+        return {"success": False, "error": f"スロット情報を取得できません: {e}"}
+    slot = pick_slot_for_model(slots, model)
+    if slot is None:
+        return {"success": False, "error": "このサーバはスロットが 1 本だけなので起動後の切り替えはできません。起動時に ACESTEP_CONFIG_PATH で指定してください"}
+    logger.info(f"[models/load] {model} → slot {slot} (slots={slots})")
+    try:
+        result = await ace_step_client.init_model(model, slot)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    return {"success": True, "loaded": True, "model": data.get("loaded_model") or model, "slot": data.get("slot", slot), "message": "切り替えました"}
 
 
 @router.get("/stats")
@@ -595,6 +669,7 @@ async def generate_cover(
         if infer_method:
             form_fields["infer_method"] = infer_method
 
+        await _release_local_llm()
         result = await ace_step_client.release_task_multipart(
             form_fields=form_fields,
             src_audio_bytes=src_audio_bytes,
@@ -708,6 +783,7 @@ async def generate_repaint(
         if infer_method:
             form_fields["infer_method"] = infer_method
 
+        await _release_local_llm()
         result = await ace_step_client.release_task_multipart(
             form_fields=form_fields,
             src_audio_bytes=src_audio_bytes,

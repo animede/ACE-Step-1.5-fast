@@ -4,8 +4,8 @@ rem   ACESTEP_GPU_PROFILE=16gb (default): XL-SFT on the GPU, XL-turbo / 2B turbo
 rem   ACESTEP_GPU_PROFILE=large          : every DiT resident, LM 4B, no offload
 rem   ACESTEP_GPU_PROFILE=12gb           : 2B only (2B turbo on the GPU, 2B base swapped in), no XL
 rem Set any variable before calling this script to override it, e.g.  set ACESTEP_API_PORT=8002
-rem Not yet verified on Windows.
-setlocal
+rem Verified on Windows (RTX 4060 Laptop 8GB, see README).
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 rem The environment is built by setup.bat (twice on a fresh PC: the first run installs uv and stops, the second builds .venv).
 rem Check it here so a half-finished install gives one clear message instead of "uvicorn: command not found".
@@ -22,6 +22,19 @@ rem see setup.bat: Hugging Face cache without symlinks (WinError 1314 on PCs wit
 if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if exist ".venv\Scripts\activate.bat" call ".venv\Scripts\activate.bat"
 
+rem No profile given: pick it from the card's VRAM so a 12 GB GPU does not silently get the 16gb default
+rem (XL-SFT, 50 steps: runs, but takes minutes). 14000 MiB threshold: 12 GB cards report ~12288, 16 GB ~16376.
+set "ACESTEP_SMI_GPU="
+if defined CUDA_VISIBLE_DEVICES set "ACESTEP_SMI_GPU=-i %CUDA_VISIBLE_DEVICES%"
+if not defined ACESTEP_GPU_PROFILE (
+    for /f "usebackq tokens=1 delims=, " %%v in (`nvidia-smi %ACESTEP_SMI_GPU% --query-gpu=memory.total --format=csv,noheader,nounits 2^>nul`) do (
+        if not defined ACESTEP_VRAM_MIB set ACESTEP_VRAM_MIB=%%v
+    )
+)
+if not defined ACESTEP_GPU_PROFILE if defined ACESTEP_VRAM_MIB (
+    if %ACESTEP_VRAM_MIB% LSS 14000 (set ACESTEP_GPU_PROFILE=12gb) else (set ACESTEP_GPU_PROFILE=16gb)
+    echo [run_api_server_fast] GPU VRAM %ACESTEP_VRAM_MIB% MiB -^> ACESTEP_GPU_PROFILE=!ACESTEP_GPU_PROFILE! ^(set ACESTEP_GPU_PROFILE to override; large for ^>= 40 GB^)
+)
 if not defined ACESTEP_GPU_PROFILE set ACESTEP_GPU_PROFILE=16gb
 if /i "%ACESTEP_GPU_PROFILE%"=="large" (
     if not defined ACESTEP_DIT_RESIDENCY set ACESTEP_DIT_RESIDENCY=shared

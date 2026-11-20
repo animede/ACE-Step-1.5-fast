@@ -15,7 +15,15 @@ C++ と CMake で詰まりやすい)をやめ、llama.cpp の GitHub Releases �
 - 起動: llama-server -m <gguf> --host 127.0.0.1 --port <LOCAL_LLM_PORT、既定 11440> -c 8192 -t <CPU/2>
   --reasoning off。/health が 200 を返すまで待つ。そのポートで既に何かが応答していればそれを使う。
 - 子プロセスはプロセス終了時(atexit)に止める。親が強制終了された場合も Windows は Job Object
-  (KILL_ON_JOB_CLOSE)、Linux は prctl(PR_SET_PDEATHSIG) で道連れにする。GPU は使わない。
+  (KILL_ON_JOB_CLOSE)、Linux は prctl(PR_SET_PDEATHSIG) で道連れにする。
+
+2026-11-20: GPU 対応。LOCAL_LLM_GPU=auto(既定)で nvidia-smi が見えれば llama.cpp の **CUDA 版**
+(Windows: bin-win-cuda-12.4-x64 + cudart、Linux: bin-ubuntu-cuda-12.8-x64 + cudart、合計 0.6〜0.8GB)を取得して
+`--fit on`(空き VRAM に入る層数だけ GPU に載せ、残りは CPU)で起動する。E4B Q4_0 は全部載ると約 3GB + KV。
+3060 12GB で ACE(12gb プロファイル、待機 約 7GB)と同居できるのはこの自動フィットのおかげで、i3 の CPU で
+1 分 20 秒かかっていた歌詞が十数秒になる。ACE に生成を投げる直前に `release_before_ace()` で止めて VRAM を
+返し(ACE の拡散ピーク 8.5GB のため)、次の LLM 呼び出しで起こし直す(ページキャッシュから数秒)。
+LOCAL_LLM_GPU=off で従来の CPU 版、LOCAL_LLM_GPU=all / <層数> で固定。
 """
 import asyncio
 import atexit
@@ -47,6 +55,9 @@ MODELS_DIR = os.path.join(APP_DIR, "models")
 TOOLS_DIR = os.path.join(APP_DIR, "tools", "llama")
 LOGS_DIR = os.path.join(APP_DIR, "logs")
 DEFAULT_TAG = "b12475"      # 2026-11-17 に Gemma 4 E4B Q4_0 で動作確認(Linux x64 / Windows x64 の CPU 版)
+CUDA_WIN = "12.4"          # Windows 用 CUDA ビルドの CUDA 版数(ドライバ 550 以上。ACE-Step 自体が 12.8 対応ドライバを要求するので満たす)
+CUDA_LINUX = "12.8"        # Linux 用
+FIT_TARGET_MIB = 768       # --fit が GPU に残す余白(MiB)。ACE の待機分はすでに確保済みなので小さくてよい
 DEFAULT_PORT = 11440
 N_CTX = 8192                # システムプロンプト + 歌詞に十分
 HEALTH_TIMEOUT_S = 300      # 初回はモデルの読み込みに時間がかかる
@@ -73,9 +84,63 @@ def _exe_name() -> str:
     return "llama-server.exe" if sys.platform == "win32" else "llama-server"
 
 
-def release_asset() -> Optional[tuple]:
-    """(アーカイブ名, アーカイブ内の llama-server の相対パス)。未対応プラットフォームは None。"""
+def gpu_setting() -> str:
+    """LOCAL_LLM_GPU: auto(既定) / off / all / <層数>"""
+    return (os.environ.get("LOCAL_LLM_GPU", "").strip() or "auto").lower()
+
+
+def nvidia_free_mib() -> Optional[int]:
+    """最初の GPU(CUDA_VISIBLE_DEVICES があればその GPU)の空き VRAM(MiB)。nvidia-smi が無ければ None。"""
+    exe = shutil.which("nvidia-smi")
+    if exe is None and sys.platform == "win32":
+        cand = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe")
+        exe = cand if os.path.exists(cand) else None
+    if exe is None:
+        return None
+    cmd = [exe, "--query-gpu=memory.free", "--format=csv,noheader,nounits"]
+    vis = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")[0].strip()
+    if vis:
+        cmd[1:1] = ["-i", vis]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10, **_popen_kwargs_quiet())
+        line = out.stdout.strip().splitlines()[0].strip()
+        return int(float(line))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def use_gpu() -> bool:
+    """CUDA 版を使うか。auto は nvidia-smi が見えて x64 の Windows / Linux のとき。"""
+    mode = gpu_setting()
+    if mode == "off":
+        return False
+    x64 = platform.machine().lower() in ("x86_64", "amd64")
+    cuda_platform = sys.platform == "win32" or sys.platform.startswith("linux")
+    if not (x64 and cuda_platform):
+        return False
+    if mode == "auto":
+        return nvidia_free_mib() is not None
+    return True
+
+
+def release_asset(gpu: Optional[bool] = None) -> Optional[tuple]:
+    """(アーカイブ名, アーカイブ内の llama-server の相対パス, [cudart アーカイブ名])。未対応プラットフォームは None。
+
+    gpu=True は CUDA 版(x64 の Windows / Linux のみ)。アーカイブは 1 段のディレクトリに入っていることがあるので
+    展開側(_extract_archive)で平らにする。
+    """
     tag = _tag()
+    machine = platform.machine().lower()
+    x64 = machine in ("x86_64", "amd64")
+    if gpu is None:
+        gpu = use_gpu()
+    if gpu and x64:
+        if sys.platform.startswith("linux"):
+            return (f"llama-{tag}-bin-ubuntu-cuda-{CUDA_LINUX}-x64.tar.gz", "llama-server",
+                    f"cudart-llama-{tag}-bin-ubuntu-cuda-{CUDA_LINUX}-x64.tar.gz")
+        if sys.platform == "win32":
+            return (f"llama-{tag}-bin-win-cuda-{CUDA_WIN}-x64.zip", "llama-server.exe",
+                    f"cudart-llama-bin-win-cuda-{CUDA_WIN}-x64.zip")
     machine = platform.machine().lower()
     x64 = machine in ("x86_64", "amd64")
     arm = machine in ("aarch64", "arm64")
@@ -97,54 +162,79 @@ def release_asset() -> Optional[tuple]:
     return None
 
 
-def find_binary() -> Optional[str]:
+def _tools_dir(gpu: bool) -> str:
+    return os.path.join(TOOLS_DIR, _tag() + ("-cuda" if gpu else ""))
+
+
+def find_binary(gpu: Optional[bool] = None) -> Optional[str]:
     override = os.environ.get("LLAMA_SERVER", "").strip()
     if override:
         p = os.path.expanduser(override)
         return p if os.path.exists(p) else None
-    local = os.path.join(TOOLS_DIR, _tag(), _exe_name())
+    if gpu is None:
+        gpu = use_gpu()
+    local = os.path.join(_tools_dir(gpu), _exe_name())
     if os.path.exists(local):
         return local
+    if gpu:
+        return None  # CPU 版が落ちていても GPU 版は別に取る(PATH の llama-server も CPU 版かもしれないので使わない)
     return shutil.which("llama-server")
 
 
-def download_binary() -> str:
-    """Releases の固定タグから CPU 版を取得して tools/llama/<tag>/ に展開する。"""
-    asset = release_asset()
-    if asset is None:
-        raise RuntimeError(
-            f"No prebuilt llama.cpp binary for this platform ({sys.platform}/{platform.machine()}). "
-            "Set LLAMA_SERVER=<path> or use the external LLM only."
-        )
-    name, inner = asset
-    url = f"https://github.com/ggml-org/llama.cpp/releases/download/{_tag()}/{name}"
-    dest_dir = os.path.join(TOOLS_DIR, _tag())
+def _extract_archive(name: str, data: bytes, dest_dir: str) -> None:
+    """zip / tar.gz を dest_dir に展開し、1 段のディレクトリに入っていれば中身を持ち上げる(.so / .dll が exe と同じ場所に要る)。"""
     os.makedirs(dest_dir, exist_ok=True)
-    logger.info("Downloading llama-server: %s", url)
-    with urllib.request.urlopen(url, timeout=120) as resp:
-        data = resp.read()
+    before = set(os.listdir(dest_dir))
     if name.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             z.extractall(dest_dir)
-        exe = os.path.join(dest_dir, inner)
     else:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as t:
             try:
                 t.extractall(dest_dir, filter="data")
             except TypeError:  # Python < 3.12
                 t.extractall(dest_dir)
-        # tar は llama-<tag>/ の下に入っているので 1 段持ち上げる(.so が exe と同じ場所に要る)
-        sub = os.path.dirname(os.path.join(dest_dir, inner))
+    added = [x for x in os.listdir(dest_dir) if x not in before]
+    if len(added) == 1 and os.path.isdir(os.path.join(dest_dir, added[0])):
+        sub = os.path.join(dest_dir, added[0])
         for item in os.listdir(sub):
             target = os.path.join(dest_dir, item)
             if not os.path.exists(target):
                 shutil.move(os.path.join(sub, item), target)
         shutil.rmtree(sub, ignore_errors=True)
-        exe = os.path.join(dest_dir, _exe_name())
-        os.chmod(exe, os.stat(exe).st_mode | 0o111)
+
+
+def _fetch(url: str) -> bytes:
+    logger.info("Downloading: %s", url)
+    with urllib.request.urlopen(url, timeout=600) as resp:
+        return resp.read()
+
+
+def download_binary(gpu: Optional[bool] = None) -> str:
+    """Releases の固定タグから llama-server(GPU なら CUDA 版 + cudart)を取得して tools/llama/<tag>[-cuda]/ に展開する。"""
+    if gpu is None:
+        gpu = use_gpu()
+    asset = release_asset(gpu)
+    if asset is None:
+        raise RuntimeError(
+            f"No prebuilt llama.cpp binary for this platform ({sys.platform}/{platform.machine()}). "
+            "Set LLAMA_SERVER=<path> or use the external LLM only."
+        )
+    name, inner = asset[0], asset[1]
+    cudart = asset[2] if len(asset) > 2 else None
+    base = f"https://github.com/ggml-org/llama.cpp/releases/download/{_tag()}/"
+    dest_dir = _tools_dir(gpu)
+    total = 0
+    for archive in [name] + ([cudart] if cudart else []):
+        data = _fetch(base + archive)
+        total += len(data)
+        _extract_archive(archive, data, dest_dir)
+    exe = os.path.join(dest_dir, os.path.basename(inner))
     if not os.path.exists(exe):
         raise RuntimeError(f"{exe} not found after extraction (archive layout changed?)")
-    logger.info("llama-server ready: %s (%.1f MB)", exe, len(data) / 1e6)
+    if sys.platform != "win32":
+        os.chmod(exe, os.stat(exe).st_mode | 0o111)
+    logger.info("llama-server ready: %s (%s, %.0f MB)", exe, "CUDA" if gpu else "CPU", total / 1e6)
     return exe
 
 
@@ -188,6 +278,10 @@ def _linux_die_with_parent():
         return
     if os.getppid() != _PARENT_PID:
         os._exit(0)
+
+
+def _popen_kwargs_quiet() -> dict:
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if sys.platform == "win32" else {}
 
 
 def _popen_kwargs() -> dict:
@@ -249,6 +343,8 @@ class LocalLLMService:
         self._lock = threading.Lock()
         self._unavailable_reason = ""
         self._external_on_port = False
+        self._gpu = False            # 今の子プロセスが CUDA 版か
+        self._starts = 0
         atexit.register(self.stop)
 
     @property
@@ -256,7 +352,7 @@ class LocalLLMService:
         """ローカルLLMが利用可能かどうか(バイナリは起動時に自動取得するので、プラットフォーム対応のみ見る)"""
         if self._unavailable_reason:
             return False
-        if release_asset() is None and find_binary() is None:
+        if release_asset() is None and find_binary() is None:  # noqa: SIM102
             self._unavailable_reason = (
                 f"no prebuilt llama-server for {sys.platform}/{platform.machine()} (set LLAMA_SERVER=<path>)"
             )
@@ -281,12 +377,24 @@ class LocalLLMService:
             self._external_on_port = True
             return self._base_url()
         self._external_on_port = False
-        exe = find_binary() or download_binary()
+        gpu = use_gpu()
+        exe = find_binary(gpu) or download_binary(gpu)
         gguf = download_model()
         os.makedirs(LOGS_DIR, exist_ok=True)
         log = open(os.path.join(LOGS_DIR, "llama-server.log"), "ab")
         cmd = [exe, "-m", gguf, "--host", "127.0.0.1", "--port", str(port), "-c", str(N_CTX),
                "-t", str(max(4, (os.cpu_count() or 8) // 2)), "--reasoning", "off"]
+        if gpu:
+            mode = gpu_setting()
+            if mode in ("auto", "on"):
+                # 空き VRAM に入る層数だけ GPU へ(llama.cpp の --fit)。ACE が待機中でも共存できる
+                cmd += ["--fit", "on", "--fit-target", str(FIT_TARGET_MIB)]
+            else:
+                cmd += ["-ngl", mode, "--fit", "off"]
+            free = nvidia_free_mib()
+            logger.info("ローカルLLM: CUDA 版、空き VRAM %s MiB、LOCAL_LLM_GPU=%s", free, mode)
+        self._gpu = gpu
+        self._starts += 1
         logger.info("ローカルLLMを起動: %s", " ".join(cmd))
         self._proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                       cwd=os.path.dirname(exe), **_popen_kwargs())
@@ -301,6 +409,25 @@ class LocalLLMService:
             time.sleep(0.5)
         self.stop()
         raise RuntimeError(f"llama-server did not become healthy within {HEALTH_TIMEOUT_S}s")
+
+    def release_before_ace(self) -> bool:
+        """ACE に生成を投げる直前に呼ぶ。CUDA 版の子プロセスが居れば止めて VRAM を返す(次の呼び出しで起こし直す)。
+
+        LOCAL_LLM_STOP_BEFORE_ACE=0 で無効、=1 で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+        戻り値: 止めたかどうか。
+        """
+        setting = (os.environ.get("LOCAL_LLM_STOP_BEFORE_ACE", "").strip() or "auto").lower()
+        if setting in ("0", "off", "false", "no"):
+            return False
+        with self._lock:
+            if self._proc is None or self._proc.poll() is not None:
+                return False
+            if setting == "auto" and not self._gpu:
+                return False
+            t0 = time.time()
+            self.stop()
+            logger.info("ローカルLLMを停止(ACE 生成のため VRAM/RAM を返す、%.1fs)", time.time() - t0)
+            return True
 
     def stop(self) -> None:
         proc, self._proc = self._proc, None
@@ -377,6 +504,10 @@ class LocalLLMService:
             "model_path": path,
             "binary": exe,
             "binary_source": f"llama.cpp {_tag()} {asset[0]}" if asset else None,
+            "gpu": self._gpu if self._running() else use_gpu(),
+            "gpu_setting": gpu_setting(),
+            "free_vram_mib": nvidia_free_mib(),
+            "starts": self._starts,
         }
 
 

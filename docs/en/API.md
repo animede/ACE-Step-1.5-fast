@@ -882,7 +882,7 @@ keep their request and response shapes. Reference application: the bundled Easy 
 ### 12.1 Unchanged
 
 - Authentication (`ACESTEP_API_KEY`), the response envelope (`data` / `code` / `error` / `timestamp`), task statuses (0 / 1 / 2), result fields (`file`, `dit_model`, `lm_model`, `seed_value`, `metas`, `generation_info`, ...).
-- Omitting `model` uses the primary (`acestep-v15-xl-sft` with `run_api_server_fast.sh`); a model name that is not loaded falls back to the primary (check `dit_model` in the result).
+- Omitting `model` uses the primary (`acestep-v15-xl-sft` with `run_api_server_fast.sh`); a model name that is not loaded fails the task with `Model '...' is not loaded on this server (loaded: ...)` instead of silently using the primary; load it first with `POST /v1/init`. Each entry of `GET /v1/models` carries `is_loaded`, `vram_ok` and `min_vram_gb` (whether this GPU can hold it).
 
 ### 12.2 Added
 

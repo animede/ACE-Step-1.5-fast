@@ -6,11 +6,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from acestep.api.job_model_selection import select_generation_handler
+from acestep.api.job_model_selection import ModelNotLoadedError, select_generation_handler
 
 
 class JobModelSelectionTests(unittest.TestCase):
-    """Behavior tests for model routing and fallback logging."""
+    """Behavior tests for model routing and the not-loaded refusal."""
 
     def _app_state(self) -> SimpleNamespace:
         return SimpleNamespace(
@@ -73,24 +73,38 @@ class JobModelSelectionTests(unittest.TestCase):
         self.assertEqual("third", model)
         logger.assert_called_once()
 
-    def test_select_generation_handler_logs_fallback_on_unknown_model(self) -> None:
-        """Unknown requested model should preserve fallback-to-primary behavior."""
+    def test_select_generation_handler_refuses_unknown_model(self) -> None:
+        """A model that is in no loaded slot must raise instead of silently using primary."""
 
         app_state = self._app_state()
         logger = MagicMock()
+        with self.assertRaises(ModelNotLoadedError) as ctx:
+            select_generation_handler(
+                app_state=app_state,
+                requested_model="unknown",
+                get_model_name=lambda value: value.split("-")[-1] if value else "",
+                job_id="job-4",
+                log_fn=logger,
+            )
+
+        self.assertEqual(["primary", "second", "third"], ctx.exception.loaded)
+        self.assertIn("not loaded", str(ctx.exception))
+        self.assertIn("/v1/init", str(ctx.exception))
+        logger.assert_called_once()
+
+    def test_select_generation_handler_accepts_primary_by_name(self) -> None:
+        """Naming the primary model explicitly is not a mismatch."""
+
+        app_state = self._app_state()
         handler, model = select_generation_handler(
             app_state=app_state,
-            requested_model="unknown",
+            requested_model="primary",
             get_model_name=lambda value: value.split("-")[-1] if value else "",
-            job_id="job-4",
-            log_fn=logger,
+            job_id="job-5",
+            log_fn=MagicMock(),
         )
-
         self.assertIs(handler, app_state.handler)
         self.assertEqual("primary", model)
-        logger.assert_called_once()
-        self.assertIn("not found", logger.call_args[0][0])
-
 
 if __name__ == "__main__":
     unittest.main()

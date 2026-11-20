@@ -11,6 +11,8 @@ from fastapi import Depends, FastAPI
 from pydantic import BaseModel, Field
 
 from acestep.api.http.model_init_service import initialize_models_for_request
+from acestep.api.model_vram import min_vram_gb, vram_fits
+from acestep.gpu_config import get_gpu_config
 from acestep.constants import TASK_TYPES_BASE, TASK_TYPES_TURBO
 
 
@@ -99,11 +101,19 @@ def _collect_model_inventory(
         if loaded_lm_model:
             available_lm_models.add(loaded_lm_model)
 
+    # Which of the on-disk models this GPU can hold at all (clients grey out the rest)
+    try:
+        gpu_memory_gb = float(get_gpu_config().gpu_memory_gb)
+    except Exception:
+        gpu_memory_gb = 0.0
+    quantization = os.getenv("ACESTEP_QUANTIZATION") or None
     models = [
         {
             "name": name,
             "is_default": bool(name == primary_model and primary_model),
             "is_loaded": name in loaded_dit_models,
+            "vram_ok": vram_fits(name, gpu_memory_gb, quantization),
+            "min_vram_gb": min_vram_gb(name, quantization),
             "supported_task_types": _read_model_supported_tasks(checkpoint_dir, name),
         }
         for name in sorted(available_dit_models)
@@ -225,6 +235,8 @@ def register_model_service_routes(
             except RuntimeError as exc:
                 msg = str(exc)
                 if "slot" in msg.lower() and "not available" in msg.lower():
+                    return wrap_response(None, code=400, error=msg)
+                if msg.startswith("VRAM too small"):
                     return wrap_response(None, code=400, error=msg)
                 return wrap_response(None, code=500, error=f"Model initialization failed: {msg}")
             except Exception as exc:

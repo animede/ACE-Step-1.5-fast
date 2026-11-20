@@ -5,6 +5,19 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Tuple
 
 
+class ModelNotLoadedError(ValueError):
+    """The request named a DiT model that is not in any loaded slot."""
+
+    def __init__(self, requested: str, loaded: list):
+        self.requested = requested
+        self.loaded = list(loaded)
+        super().__init__(
+            f"Model '{requested}' is not loaded on this server (loaded: {', '.join(self.loaded)}). "
+            f"Next step: choose one of the loaded models, or load it first with POST /v1/init "
+            f"{{\"model\": \"{requested}\", \"slot\": 2}} (Easy Music does this when you pick it)."
+        )
+
+
 def select_generation_handler(
     *,
     app_state: Any,
@@ -50,15 +63,18 @@ def select_generation_handler(
             model_matched = True
             log_fn(f"[API Server] Job {job_id}: Using third model: {model3_name}")
 
-    if not model_matched:
-        available_models = [get_model_name(app_state._config_path)]
+    if not model_matched and requested_model != selected_model_name:
+        available_models = [selected_model_name]
         if app_state.handler2 and getattr(app_state, "_initialized2", False):
             available_models.append(get_model_name(app_state._config_path2))
         if app_state.handler3 and getattr(app_state, "_initialized3", False):
             available_models.append(get_model_name(app_state._config_path3))
+        # Refuse instead of quietly generating with the primary model: a user who
+        # picked "turbo" and silently got XL-SFT only sees a slow, wrong result.
         log_fn(
-            f"[API Server] Job {job_id}: Model '{requested_model}' not found in "
-            f"{available_models}, using primary: {selected_model_name}"
+            f"[API Server] Job {job_id}: Model '{requested_model}' not loaded "
+            f"(loaded: {available_models}); refusing"
         )
+        raise ModelNotLoadedError(requested_model, available_models)
 
     return selected_handler, selected_model_name

@@ -6,6 +6,7 @@ import contextlib
 import os
 from typing import Any, Callable, Dict, Optional
 
+from acestep.api.model_vram import vram_problem
 from acestep.cli_args import parse_quantization_arg
 from acestep.gpu_config import (
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
@@ -108,6 +109,10 @@ def initialize_models_for_request(
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
     quantization = parse_quantization_arg(os.getenv("ACESTEP_QUANTIZATION"))
     device = os.getenv("ACESTEP_DEVICE", "auto")
+
+    problem = vram_problem(target_model, gpu_config.gpu_memory_gb, quantization)
+    if problem:
+        raise RuntimeError(problem)
 
     ensure_model_downloaded(target_model, checkpoint_dir)
     ensure_model_downloaded("vae", checkpoint_dir)

@@ -758,7 +758,7 @@ APIサーバーは環境変数で設定できます：
 ### 12.1 変わらないこと
 
 - 認証(`ACESTEP_API_KEY`)、レスポンスの包み(`data` / `code` / `error` / `timestamp`)、タスクのステータス(0 / 1 / 2)、結果 JSON の各フィールド(`file`、`dit_model`、`lm_model`、`seed_value`、`metas`、`generation_info` …)。
-- `model` を省略した場合は primary(`run_api_server_fast.sh` では `acestep-v15-xl-sft`)。読み込まれていないモデル名を指定した場合は primary に置き換わる(結果の `dit_model` で確認できる)。
+- `model` を省略した場合は primary(`run_api_server_fast.sh` では `acestep-v15-xl-sft`)。読み込まれていないモデル名を指定した場合はタスクが失敗し、`Model '...' is not loaded on this server (loaded: ...)` が error に入る(黙って primary には置き換えない)。先に `POST /v1/init` で読み込む。`GET /v1/models` の各モデルの `is_loaded` / `vram_ok` / `min_vram_gb` で、読み込み済みか、この GPU に載るかが分かる。
 
 ### 12.2 追加したもの
 

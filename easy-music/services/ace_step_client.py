@@ -417,6 +417,36 @@ class AceStepClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def get_residency(self) -> Dict[str, Any]:
+        """DiT スロット(1〜3)の中身と GPU 上にあるものを取得"""
+        async with await self._get_async_client() as client:
+            response = await client.get(
+                f"{self.base_url}/v1/residency",
+                headers=self._build_headers()
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def init_model(self, model: str, slot: int, timeout: float = 900.0) -> Dict[str, Any]:
+        """起動後にスロットのモデルを入れ替える(/v1/init)。XL で数十秒、bf16 の読み込みなので長めのタイムアウト。
+
+        サーバが 400 で断った場合(VRAM 不足、スロット無し)は本文の error をそのまま例外にする。
+        """
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/v1/init",
+                headers=self._build_headers(),
+                json={"model": model, "slot": slot},
+            )
+            body: Dict[str, Any] = {}
+            try:
+                body = response.json()
+            except ValueError:
+                pass
+            if response.status_code >= 400 or (isinstance(body, dict) and body.get("code", 200) >= 400):
+                raise RuntimeError(str(body.get("error") or body.get("message") or f"HTTP {response.status_code}"))
+            return body
     
     async def release_task_multipart(
         self,

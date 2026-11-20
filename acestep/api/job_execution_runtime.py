@@ -60,13 +60,8 @@ async def run_one_job_runtime(
         result_expire_seconds=result_expire_seconds,
     )
 
-    selected_handler, selected_model_name = select_generation_handler_fn(
-        app_state=app_state,
-        requested_model=req.model,
-        get_model_name=get_model_name,
-        job_id=job_id,
-        log_fn=log_fn,
-    )
+    selected_handler = getattr(app_state, "handler", None)
+    selected_model_name = get_model_name(getattr(app_state, "_config_path", "") or "")
 
     def _blocking_generate() -> dict[str, Any]:
         residency = getattr(app_state, "dit_residency", None)
@@ -77,6 +72,15 @@ async def run_one_job_runtime(
 
     t0 = time.time()
     try:
+        # Inside the try: a request for a model that is not loaded fails the job
+        # with a clear message instead of silently using the primary model.
+        selected_handler, selected_model_name = select_generation_handler_fn(
+            app_state=app_state,
+            requested_model=req.model,
+            get_model_name=get_model_name,
+            job_id=job_id,
+            log_fn=log_fn,
+        )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(executor, _blocking_generate)
         job_store.mark_succeeded(job_id, result)
@@ -94,7 +98,8 @@ async def run_one_job_runtime(
         error_traceback = traceback.format_exc()
         log_fn(f"[API Server] Job {job_id} FAILED: {exc}")
         log_fn(f"[API Server] Traceback:\n{error_traceback}")
-        job_store.mark_failed(job_id, error_traceback)
+        # A refused model is a user error, not a crash: report the one-line reason only.
+        job_store.mark_failed(job_id, str(exc) if isinstance(exc, ValueError) else error_traceback)
         update_terminal_job_cache_fn(
             app_state=app_state,
             store=store,

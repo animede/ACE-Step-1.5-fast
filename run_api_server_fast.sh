@@ -29,6 +29,18 @@ fi
 # Every value below can be overridden from the environment.
 # -----------------------------------------------------------------------------
 
+# No profile given: pick it from the card's VRAM (nvidia-smi), so a 12 GB GPU does
+# not silently get the 16gb default (XL-SFT, 50 steps: runs, but takes minutes).
+# Threshold 14 GB: 12 GB cards report ~12288 MiB, 16 GB cards ~16376 MiB.
+if [[ -z "${ACESTEP_GPU_PROFILE:-}" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+	_gpu_arg=()
+	if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then _gpu_arg=(-i "${CUDA_VISIBLE_DEVICES%%,*}"); fi
+	_vram_mib="$(nvidia-smi "${_gpu_arg[@]}" --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d ' ')"
+	if [[ "$_vram_mib" =~ ^[0-9]+$ ]]; then
+		if (( _vram_mib < 14000 )); then export ACESTEP_GPU_PROFILE=12gb; else export ACESTEP_GPU_PROFILE=16gb; fi
+		echo "[run_api_server_fast] GPU VRAM ${_vram_mib} MiB -> ACESTEP_GPU_PROFILE=${ACESTEP_GPU_PROFILE} (set ACESTEP_GPU_PROFILE to override; large for >= 40 GB)"
+	fi
+fi
 export ACESTEP_GPU_PROFILE="${ACESTEP_GPU_PROFILE:-16gb}"
 if [[ "$ACESTEP_GPU_PROFILE" == "large" ]]; then
 	export ACESTEP_DIT_RESIDENCY="${ACESTEP_DIT_RESIDENCY:-shared}"
