@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-18 14:55 JST** — Windows 向けの修正(HF キャッシュの symlink 無効化、winget の `--source winget`、バッチの CRLF 化、GPU 確認を `scripts/check_env.py` に)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-20 15:31 JST** — README の Windows 手順を PowerShell でも通る `.\` 付きの呼び出しに(`.\setup.bat` など)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -57,38 +57,38 @@ cd ACE-Step-1.5-fast
 
 ### Windows の場合
 
-前提は NVIDIA ドライバ(CUDA 12.8 以上対応)だけです。Python・CUDA Toolkit・Visual Studio は不要(uv が Python 3.11 を用意し、torch と flash-attn はビルド済み wheel)。コマンドプロンプトで上から順に実行します。
+前提は NVIDIA ドライバ(CUDA 12.8 以上対応)だけです。Python・CUDA Toolkit・Visual Studio は不要(uv が Python 3.11 を用意し、torch と flash-attn はビルド済み wheel)。PowerShell でもコマンドプロンプトでも同じ(`.\` 付きで書いてあるのはそのため。PowerShell はカレントディレクトリの `.bat` を名前だけでは実行しない)。コマンドプロンプトで上から順に実行します。
 
 ```bat
 winget install --id Git.Git -e --source winget
 git clone https://github.com/animede/ACE-Step-1.5-fast.git
 cd ACE-Step-1.5-fast
-setup.bat
+.\setup.bat
 ```
 
 コマンドプロンプト 1(API サーバ、起動したまま):
 
 ```bat
 cd ACE-Step-1.5-fast
-run_api_server_fast.bat
+.\run_api_server_fast.bat
 ```
 
 コマンドプロンプト 2(同梱の Web アプリを使う場合。サーバが起動してから):
 
 ```bat
 cd ACE-Step-1.5-fast
-run_easy_music.bat 8888
+.\run_easy_music.bat 8888
 ```
 
-- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `run_easy_music.bat 8890`)。停止は `close_api_server.bat`。
+- ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `.\run_easy_music.bat 8890`)。停止は `.\close_api_server.bat`。
 - 歌詞生成の LLM(OpenAI 互換 API。既定は `http://localhost:11434/v1` = Ollama、無ければ CPU 上の GGUF = Gemma 4 E4B Q4_0 にフォールバック。同梱 LLM は llama.cpp のビルド済み `llama-server` を初回に自動取得するのでコンパイラ不要)を指定するには、起動引数か `easy-music\.env` を使う:
 
 ```bat
-run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
+.\run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
 ```
 
 `easy-music\.env` に書く場合は `OPENAI_BASE_URL=http://LLM_HOST:11434/v1`、`OPENAI_API_KEY=YOUR_KEY`、`OPENAI_CHAT_MODEL=gemma3:latest`(起動引数が優先)。ACE サーバは `--ace-url`、背景画像サーバは `--img-url` で同様に指定できる。
-- `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいコマンドプロンプトで `setup.bat` をもう一度。
+- `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large` のように指定。Windows 版は実機での動作確認がまだなので、問題があれば Issue で報告してください(同じ作りの [minimax-h3](https://github.com/animede/Diffusers_minimax-h3) の Windows 実機で見つかった問題、HF キャッシュの symlink 競合・winget のソース指定・バッチの改行コード・`python -c` の引用符は、こちらにも反映済み)。
 
