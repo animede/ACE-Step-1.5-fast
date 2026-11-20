@@ -36,7 +36,15 @@ if errorlevel 1 (
     )
     set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 )
-uv --version || (echo uv is not on PATH yet: open a new command prompt and run setup.bat again. & exit /b 1)
+uv --version || (
+    echo.
+    echo ============================================================
+    echo  uv was just installed but this window does not see it yet.
+    echo  CLOSE this window, open a new PowerShell, and run  .\setup.bat  AGAIN.
+    echo  Nothing else has been installed yet - the second run does the real work.
+    echo ============================================================
+    exit /b 1
+)
 
 echo [2/4] Python environment (.venv, from uv.lock; Python 3.11 is required by the flash-attn wheel)
 uv sync --frozen --python 3.11 || exit /b 1

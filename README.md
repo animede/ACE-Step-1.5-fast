@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-20 15:31 JST** — README の Windows 手順を PowerShell でも通る `.\` 付きの呼び出しに(`.\setup.bat` など)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-20 16:16 JST** — 起動バッチが未完成の venv を検出して「.\setup.bat を実行」とだけ出すように(新規 PC では uv 導入後にもう一度必要)。README の Windows 手順を `.\` 付きに。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。

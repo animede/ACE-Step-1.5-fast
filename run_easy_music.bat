@@ -5,7 +5,12 @@ setlocal
 cd /d "%~dp0easy-music"
 if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if not exist ".venv\Scripts\activate.bat" (
-    echo easy-music\.venv is missing: run setup.bat first.
+    echo easy-music\.venv is missing: run  .\setup.bat  first ^(from the ACE-Step-1.5-fast folder; on a fresh PC it has to be run twice^).
+    exit /b 1
+)
+.venv\Scripts\python.exe -c "import uvicorn, fastapi" >nul 2>nul
+if errorlevel 1 (
+    echo easy-music\.venv is incomplete: run  .\setup.bat  again - it resumes where it stopped.
     exit /b 1
 )
 call ".venv\Scripts\activate.bat"

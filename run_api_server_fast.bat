@@ -7,6 +7,17 @@ rem Set any variable before calling this script to override it, e.g.  set ACESTE
 rem Not yet verified on Windows.
 setlocal
 cd /d "%~dp0"
+rem The environment is built by setup.bat (twice on a fresh PC: the first run installs uv and stops, the second builds .venv).
+rem Check it here so a half-finished install gives one clear message instead of "uvicorn: command not found".
+if not exist ".venv\Scripts\python.exe" (
+    echo .venv is missing: run  .\setup.bat  first ^(on a fresh PC it stops after installing uv - open a new window and run it again^).
+    exit /b 1
+)
+.venv\Scripts\python.exe -c "import uvicorn, torch" >nul 2>nul
+if errorlevel 1 (
+    echo .venv is incomplete ^(uvicorn or torch missing^): run  .\setup.bat  again - it resumes where it stopped.
+    exit /b 1
+)
 rem see setup.bat: Hugging Face cache without symlinks (WinError 1314 on PCs without Developer Mode)
 if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if exist ".venv\Scripts\activate.bat" call ".venv\Scripts\activate.bat"
