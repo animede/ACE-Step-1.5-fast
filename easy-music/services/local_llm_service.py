@@ -106,8 +106,12 @@ def nvidia_free_mib() -> Optional[int]:
 def _nvidia_query(field: str) -> Optional[int]:
     exe = shutil.which("nvidia-smi")
     if exe is None and sys.platform == "win32":
-        cand = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe")
-        exe = cand if os.path.exists(cand) else None
+        # 新しいドライバは System32、古いドライバは NVIDIA Corporation\NVSMI(PATH に無い)
+        for cand in (os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe"),
+                     os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe")):
+            if os.path.exists(cand):
+                exe = cand
+                break
     if exe is None:
         return None
     cmd = [exe, f"--query-gpu={field}", "--format=csv,noheader,nounits"]

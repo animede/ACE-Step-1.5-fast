@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-22 11:40 JST** — 8GB 級では同梱 LLM を CPU で動かす(GPU に載せると ACE の LM・TE が上がる段階で共有 GPU メモリへあふれ、4060 8GB で 5.5GB まで増えた)。`format_input` の前にも同梱 LLM を止める。Easy Music の投入の待ち時間を 120 秒 → 5 分に。8GB のカードは起動バッチだけで動くように。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-22 13:00 JST** — 起動バッチ: VRAM を読めないとき(古いドライバで nvidia-smi が PATH に無い)は NVSMI フォルダと torch で読み、だめなら警告。14GB 未満のカードに 16gb / large が指定されていると警告(8GB の 4060 が XL-SFT を読んで共有 GPU メモリに 5.5GB あふれていた)。8GB 級では同梱 LLM を CPU で動かす。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
@@ -89,7 +89,7 @@ cd ACE-Step-1.5-fast
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large`(PowerShell は `$env:ACESTEP_GPU_PROFILE = "large"`)のように指定。
-- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て、12GB 級なら `12gb`、16GB 以上なら `16gb` を選ぶ)。**8GB も何も付けずに起動すればよい**(VRAM 10GB 未満なら、起動バッチが次の 5 つの設定を自動で入れる。起動時に `8 GB class:` の行が出る)。手で変えたいときは、起動前に次のように指定する(指定したものが優先される)。
+- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て、12GB 級なら `12gb`、16GB 以上なら `16gb` を選ぶ)。**8GB も何も付けずに起動すればよい**(VRAM 10GB 未満なら、起動バッチが次の 5 つの設定を自動で入れる。起動時に `8 GB class:` の行が出る)。起動ログに `Loading primary DiT model: acestep-v15-xl-sft` と出たら、`16gb` で動いている(XL-SFT 10GB が 8GB に入らず、共有 GPU メモリへあふれて極端に遅い)。同じウィンドウで `echo %ACESTEP_GPU_PROFILE%` を実行し、値が残っていれば `set ACESTEP_GPU_PROFILE=` で消してから起動し直す(Windows のユーザー環境変数に入れていたら、そちらを消す)。起動バッチは、合わないプロファイルが指定されていると警告を出す。起動バッチの最初に `GPU VRAM ... MiB -> ACESTEP_GPU_PROFILE=` の行が無い場合は VRAM を読めていない(古いドライバでは `nvidia-smi.exe` が PATH に無い)。起動バッチは `NVIDIA Corporation\NVSMI` も探し、それでも無ければ torch で読む。両方だめなら警告を出して 16gb を仮定するので、`set ACESTEP_GPU_PROFILE=12gb` を指定する。手で変えたいときは、起動前に次のように指定する(指定したものが優先される)。
 
 ```powershell
 $env:ACESTEP_GPU_PROFILE = "12gb"

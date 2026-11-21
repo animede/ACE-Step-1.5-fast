@@ -32,10 +32,31 @@ fi
 # No profile given: pick it from the card's VRAM (nvidia-smi), so a 12 GB GPU does
 # not silently get the 16gb default (XL-SFT, 50 steps: runs, but takes minutes).
 # Threshold 14 GB: 12 GB cards report ~12288 MiB, 16 GB cards ~16376 MiB.
-if [[ -z "${ACESTEP_GPU_PROFILE:-}" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+_vram_mib=""
+if command -v nvidia-smi >/dev/null 2>&1; then
 	_gpu_arg=()
 	if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then _gpu_arg=(-i "${CUDA_VISIBLE_DEVICES%%,*}"); fi
 	_vram_mib="$(nvidia-smi "${_gpu_arg[@]}" --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d ' ')"
+fi
+if [[ ! "$_vram_mib" =~ ^[0-9]+$ ]]; then
+	# No nvidia-smi: ask torch so the profile is still chosen from the real VRAM
+	_vram_mib="$(python -c "import torch;print(torch.cuda.get_device_properties(0).total_memory//1048576)" 2>/dev/null || true)"
+fi
+if [[ ! "$_vram_mib" =~ ^[0-9]+$ && -z "${ACESTEP_GPU_PROFILE:-}" ]]; then
+	echo "WARNING: could not read the GPU VRAM (nvidia-smi and torch both failed). Assuming 16gb; on an 8 GB / 12 GB card set ACESTEP_GPU_PROFILE=12gb."
+	echo "警告: GPU の VRAM を読めませんでした。16gb を仮定します。8GB / 12GB のカードなら ACESTEP_GPU_PROFILE=12gb を指定してください。"
+fi
+# A profile set by hand (or left in the shell environment) is respected, but warn when it cannot fit the card.
+if [[ -n "${ACESTEP_GPU_PROFILE:-}" && "$_vram_mib" =~ ^[0-9]+$ ]] && (( _vram_mib < 14000 )) && [[ "$ACESTEP_GPU_PROFILE" != "12gb" ]]; then
+	echo "============================================================================"
+	echo " WARNING: ACESTEP_GPU_PROFILE=$ACESTEP_GPU_PROFILE is set, but this GPU has only ${_vram_mib} MiB."
+	echo " XL models do not fit: expect spill and very slow generation. Clear it (unset ACESTEP_GPU_PROFILE)"
+	echo " and start again so the launcher picks 12gb / the 8 GB settings."
+	echo " 警告: ACESTEP_GPU_PROFILE=$ACESTEP_GPU_PROFILE が指定されていますが、この GPU は ${_vram_mib} MiB です。"
+	echo " unset ACESTEP_GPU_PROFILE で消してから起動し直してください(自動で 12gb / 8GB 向けの設定が入ります)。"
+	echo "============================================================================"
+fi
+if [[ -z "${ACESTEP_GPU_PROFILE:-}" ]]; then
 	if [[ "$_vram_mib" =~ ^[0-9]+$ ]]; then
 		if (( _vram_mib < 14000 )); then export ACESTEP_GPU_PROFILE=12gb; else export ACESTEP_GPU_PROFILE=16gb; fi
 		echo "[run_api_server_fast] GPU VRAM ${_vram_mib} MiB -> ACESTEP_GPU_PROFILE=${ACESTEP_GPU_PROFILE} (set ACESTEP_GPU_PROFILE to override; large for >= 40 GB)"
