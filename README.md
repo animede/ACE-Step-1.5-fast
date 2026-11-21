@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-21 18:10 JST** — README を全体に見直し(対象 GPU と OS の記述、オリジナルとの違いの表に最近の機能を追加、Easy Music の節を整理)。「実機の実測」の表(RTX 3060 12GB の入門機で 3 分 15 秒の曲を 1 分 15 秒、A4000 16GB で 40 秒前後)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-22 10:30 JST** — 8GB のカードは起動バッチだけで動くように: VRAM 10GB 未満なら 8GB 向けの 5 つの設定(LM・VAE 退避、decode chunk 128、int8)を自動で入れる(デスクトップの RTX 4060 8GB で `12gb` のまま起動して失敗したため)。Windows で `ACESTEP_RESIDENT_COMPONENTS=` の空指定が効かず既定の vae に戻っていたのを `none` に。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
@@ -21,7 +21,7 @@
 | API サーバの修正 | `ACESTEP_QUANTIZATION` を受け取る(オリジナルは量子化を渡さず常に bf16)。ローダは CPU で量子化してから GPU へ、compile は `decoder.forward` に当てる |
 | 同時実行 | LM(CoT)の呼び出しを直列化(オリジナルは同時実行で CUDA が壊れる)。別モデルへの切替は実行中のジョブを待ってから |
 | モデル管理 API | `GET /v1/residency`、`POST /v1/residency/activate`(事前切替)、`POST /v1/init` の排他常駐対応(slot の入れ替え)。VRAM に載らないモデルは `/v1/init` が読む前に断り、`/v1/models` に `vram_ok` を付ける |
-| プロファイルの自動選択 | 起動スクリプトが VRAM を見て `12gb`(14GB 未満)/ `16gb` を選ぶ。8GB は指定付き([必要 VRAM の目安](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)) |
+| プロファイルの自動選択 | 起動スクリプトが VRAM を見て `12gb`(14GB 未満)/ `16gb` を選び、10GB 未満なら 8GB 向けの 5 つの設定(LM・VAE 退避、decode chunk 128、int8)も入れる([必要 VRAM の目安](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)) |
 | 生成の中止 | `POST /v1/cancel`。待ち行列中は即、生成中は今のステップの後で止まる。`/release_task` に任意の `task_id` |
 | Windows 対応 | `setup.bat` / `run_api_server_fast.bat` / `run_easy_music.bat`。Windows 10 / 11 の実機で確認済み |
 | Web UI | `webui/`(HTML + JS)。生成・cover・repaint・簡易モード・LM 設定・結果の再生と履歴・モデル管理 |
@@ -89,12 +89,12 @@ cd ACE-Step-1.5-fast
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large`(PowerShell は `$env:ACESTEP_GPU_PROFILE = "large"`)のように指定。
-- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て、12GB 級なら `12gb`、16GB 以上なら `16gb` を選ぶ)。**8GB は次の 5 つを最初から全部入れて起動**する。付けずに起動すると VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなる。
+- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て、12GB 級なら `12gb`、16GB 以上なら `16gb` を選ぶ)。**8GB も何も付けずに起動すればよい**(VRAM 10GB 未満なら、起動バッチが次の 5 つの設定を自動で入れる。起動時に `8 GB class:` の行が出る)。手で変えたいときは、起動前に次のように指定する(指定したものが優先される)。
 
 ```powershell
 $env:ACESTEP_GPU_PROFILE = "12gb"
 $env:ACESTEP_LM_OFFLOAD_TO_CPU = "1"
-$env:ACESTEP_RESIDENT_COMPONENTS = ""
+$env:ACESTEP_RESIDENT_COMPONENTS = "none"
 $env:ACESTEP_VAE_DECODE_CHUNK_SIZE = "128"
 $env:ACESTEP_QUANTIZATION = "int8_weight_only"
 .\run_api_server_fast.bat
@@ -109,8 +109,8 @@ $env:ACESTEP_QUANTIZATION = "int8_weight_only"
 ACESTEP_GPU_PROFILE=16gb ./run_api_server_fast.sh    # 16GB 級: XL-SFT 常駐 + XL-turbo / 2B turbo を要求時に入れ替え(mmap 退避)
 ACESTEP_GPU_PROFILE=large ./run_api_server_fast.sh   # 40GB 以上: 3 本とも GPU に常駐、LM 4B、退避なし(自動では選ばれない)
 ACESTEP_GPU_PROFILE=12gb ./run_api_server_fast.sh    # 12GB 級(RTX 3060 12GB など): 2B turbo 常駐 + 2B base を要求時に入れ替え、XL は使わない
-# 8GB 級(RTX 4060 Laptop 8GB / RAM 16GB(DDR5-4800)の Windows で確認済み): 12gb をもとに LM・VAE を退避、decode chunk 128、2B を int8 に。詳細は「必要 VRAM の目安」
-ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
+# 8GB 級(RTX 4060 Laptop 8GB で確認済み): VRAM 10GB 未満なら自動で 12gb + LM・VAE 退避 + decode chunk 128 + int8 が入る(無指定でよい)。手で指定するなら:
+ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS=none ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
 CUDA_VISIBLE_DEVICES=1 ./run_api_server_fast.sh      # 複数 GPU の機械で 2 枚目を使う(番号は nvidia-smi -L)
 ./close_api_server.sh --port 8001                    # 停止
 ```
@@ -210,16 +210,16 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
 - 12GB の GPU は `12gb` プロファイル(2B のみ、自動で選ばれる)。XL は bf16 の重みだけで 10GB あるので載らない。
-- **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つを**最初から全部**指定する(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して、極端に遅くなってフロントがタイムアウトする)。生成時間は下の[実機の実測](#実機の実測)。
+- **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つが**全部**要る(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、読み込みで失敗するか、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して極端に遅くなる)。**起動スクリプトは VRAM 10GB 未満ならこの 5 つを自動で入れる**ので、普通は何も付けずに起動すればよい。手で指定するときは次の形(指定したものが優先)。生成時間は下の[実機の実測](#実機の実測)。
 
   ```bash
-  ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
+  ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS=none ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
   ```
 
   Windows(PowerShell)は上の[Windows の場合](#windows-の場合)にある `$env:` 形式の 5 行。
 
   - `ACESTEP_LM_OFFLOAD_TO_CPU=1`: LM(CoT)を拡散の前だけ GPU に置く。ピークは LM の段と拡散の段の大きい方になる。CoT を使わないなら `ACESTEP_INIT_LLM=0` で LM 自体を読まない。
-  - `ACESTEP_RESIDENT_COMPONENTS=`(空): VAE も要求時だけ GPU へ(−0.3GB、1 曲あたり +1 秒程度)。
+  - `ACESTEP_RESIDENT_COMPONENTS=none`: VAE も要求時だけ GPU へ(−0.3GB、1 曲あたり +1 秒程度)。Windows では空の値が「未設定」になって既定の `vae` に戻るので、`none` と書く(Linux も `none` でよい)。
   - `ACESTEP_VAE_DECODE_CHUNK_SIZE=128`: decode のピークを −0.5GB(decode が約 2 秒遅くなる)。
   - `ACESTEP_QUANTIZATION=int8_weight_only`: 2B の重みを 4.8 → 2.4GB に。8GB ではこれが無いと足りない。速くはならず、音は bf16 と少し変わる。
   - RAM 16GB では Easy Music のローカル LLM(Gemma 4 E4B、約 4.4GB)と ACE サーバ(常駐約 4GB)が同居してぎりぎりなので、他の大きなアプリは閉じておく。
@@ -232,7 +232,7 @@ Easy Music の簡単モード(ジャンルを選んで生成、テーマ・歌�
 | 環境 | 起動・モデル | 曲の長さ → 生成時間 |
 |---|---|---|
 | RTX 3060 12GB / i3-10105(4 コア)/ RAM 32GB、Windows 10 | 何も付けない(自動で `12gb`)、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 25 秒 → 3 分 35 秒<br>続けて同じジャンル: 3 分 15 秒 → **1 分 15 秒**<br>ジャンルを変えて: 3 分 50 秒 → **2 分 1 秒** |
-| RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)、Windows 11 | [8GB の 5 つの指定](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)、2B turbo、同梱 LLM は CPU | 3 分 19 秒 → 2 分 50 秒(CPU 負荷 65% 前後) |
+| RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)、Windows 11 | [8GB の 5 つの設定](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)(今は自動)、2B turbo、同梱 LLM は CPU | 3 分 19 秒 → 2 分 50 秒(CPU 負荷 65% 前後) |
 | RTX A4000 16GB / Core Ultra 7 265KF / RAM 128GB、Ubuntu 24.04 | `12gb` を指定、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 13 秒 → **39 秒**<br>続けて同じジャンル: 3 分 22 秒 → **40 秒**<br>ジャンルを変えて: 3 分 0 秒 → **40 秒** |
 | 同上 | 何も付けない(自動で `16gb`)、2B turbo を選択 | 起動直後の 1 曲目: 3 分 35 秒 → 1 分 19 秒<br>続けて同じジャンル: 3 分 8 秒 → 39 秒<br>ジャンルを変えて: 3 分 35 秒 → 42 秒 |
 | 同上 | 何も付けない(自動で `16gb`)、XL-SFT(既定モデル、50 ステップ) | 2 分 55 秒 → 1 分 26 秒 |

@@ -39,6 +39,15 @@ if [[ -z "${ACESTEP_GPU_PROFILE:-}" ]] && command -v nvidia-smi >/dev/null 2>&1;
 	if [[ "$_vram_mib" =~ ^[0-9]+$ ]]; then
 		if (( _vram_mib < 14000 )); then export ACESTEP_GPU_PROFILE=12gb; else export ACESTEP_GPU_PROFILE=16gb; fi
 		echo "[run_api_server_fast] GPU VRAM ${_vram_mib} MiB -> ACESTEP_GPU_PROFILE=${ACESTEP_GPU_PROFILE} (set ACESTEP_GPU_PROFILE to override; large for >= 40 GB)"
+		# 8 GB class (below 10000 MiB): 12gb alone does not fit (2B turbo 4.8 + LM 1.3 + VAE 0.3 + TE 1.2 GB) and fails
+		# at load or spills to shared memory. Apply the verified 8 GB recipe (README: 8GB で動かす場合) unless set already.
+		if (( _vram_mib < 10000 )); then
+			export ACESTEP_LM_OFFLOAD_TO_CPU="${ACESTEP_LM_OFFLOAD_TO_CPU:-1}"
+			export ACESTEP_RESIDENT_COMPONENTS="${ACESTEP_RESIDENT_COMPONENTS-}"
+			export ACESTEP_VAE_DECODE_CHUNK_SIZE="${ACESTEP_VAE_DECODE_CHUNK_SIZE:-128}"
+			export ACESTEP_QUANTIZATION="${ACESTEP_QUANTIZATION:-int8_weight_only}"
+			echo "[run_api_server_fast] 8 GB class: LM/VAE offloaded, decode chunk 128, int8_weight_only (VRAM 8GB 向けの設定を自動で入れました)"
+		fi
 	fi
 fi
 export ACESTEP_GPU_PROFILE="${ACESTEP_GPU_PROFILE:-16gb}"

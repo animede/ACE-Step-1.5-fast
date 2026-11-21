@@ -34,6 +34,15 @@ if not defined ACESTEP_GPU_PROFILE (
 if not defined ACESTEP_GPU_PROFILE if defined ACESTEP_VRAM_MIB (
     if %ACESTEP_VRAM_MIB% LSS 14000 (set ACESTEP_GPU_PROFILE=12gb) else (set ACESTEP_GPU_PROFILE=16gb)
     echo [run_api_server_fast] GPU VRAM %ACESTEP_VRAM_MIB% MiB -^> ACESTEP_GPU_PROFILE=!ACESTEP_GPU_PROFILE! ^(set ACESTEP_GPU_PROFILE to override; large for ^>= 40 GB^)
+    rem 8 GB class (below 10000 MiB): 12gb alone does not fit (2B turbo 4.8 + LM 1.3 + VAE 0.3 + TE 1.2 GB) and fails at
+    rem load or spills to shared memory. Apply the verified 8 GB recipe (README: 8GB で動かす場合) unless each is set already.
+    if %ACESTEP_VRAM_MIB% LSS 10000 (
+        if not defined ACESTEP_LM_OFFLOAD_TO_CPU set ACESTEP_LM_OFFLOAD_TO_CPU=1
+        if not defined ACESTEP_RESIDENT_COMPONENTS set ACESTEP_RESIDENT_COMPONENTS=none
+        if not defined ACESTEP_VAE_DECODE_CHUNK_SIZE set ACESTEP_VAE_DECODE_CHUNK_SIZE=128
+        if not defined ACESTEP_QUANTIZATION set ACESTEP_QUANTIZATION=int8_weight_only
+        echo [run_api_server_fast] 8 GB class: LM/VAE offloaded, decode chunk 128, int8_weight_only ^(VRAM 8GB 向けの設定を自動で入れました^)
+    )
 )
 if not defined ACESTEP_GPU_PROFILE set ACESTEP_GPU_PROFILE=16gb
 if /i "%ACESTEP_GPU_PROFILE%"=="large" (
@@ -41,7 +50,7 @@ if /i "%ACESTEP_GPU_PROFILE%"=="large" (
     if not defined ACESTEP_LM_MODEL_PATH set ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-4B
     if not defined ACESTEP_OFFLOAD_TO_CPU set ACESTEP_OFFLOAD_TO_CPU=0
     if not defined ACESTEP_LM_OFFLOAD_TO_CPU set ACESTEP_LM_OFFLOAD_TO_CPU=0
-    if not defined ACESTEP_RESIDENT_COMPONENTS set "ACESTEP_RESIDENT_COMPONENTS="
+    if not defined ACESTEP_RESIDENT_COMPONENTS set ACESTEP_RESIDENT_COMPONENTS=none
     if not defined ACESTEP_VAE_DECODE_CHUNK_SIZE set ACESTEP_VAE_DECODE_CHUNK_SIZE=1024
 )
 
