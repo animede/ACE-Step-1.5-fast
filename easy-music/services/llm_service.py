@@ -4,11 +4,14 @@ LLM Service - 作詞・タグ生成サービス
 OpenAI互換APIを使用した歌詞生成とタグ推奨
 外部LLM接続失敗時はローカルGGUFモデル(Gemma 4 E4B Q4_0)にフォールバック
 """
+import asyncio
 import json
 import logging
 import re
+import time
 from typing import Optional, Dict, Any, Tuple
-from openai import AsyncOpenAI
+import httpx
+from openai import AsyncOpenAI, APIConnectionError, APITimeoutError
 
 from config import settings
 
@@ -211,6 +214,12 @@ class LLMService:
         self._client_base_url: Optional[str] = None
         self._client_api_key: Optional[str] = None
 
+        # 外部 LLM の疎通状態(起動時と EXTERNAL_LLM_PROBE_INTERVAL 秒ごとに GET /models で確認)。
+        # 接続できないと分かっている間は、呼び出しのたびに外部を試して待たず(リトライ込みで 1 回 1〜15 秒)、
+        # 最初から同梱 LLM を使う。ok=None は未確認。
+        self._external: Dict[str, Any] = {"ok": None, "detail": "not checked yet", "checked_at": 0.0, "base_url": ""}
+        self._probe_task: Optional[asyncio.Task] = None
+
     def _effective_base_url(self) -> str:
         return self._base_url_override or settings.openai_base_url
 
@@ -228,10 +237,88 @@ class LLMService:
             or self._client_base_url != base_url
             or self._client_api_key != api_key
         ):
-            self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+            # リトライは 1 回まで(既定の 2 回だと、落ちているサーバで 1 回の呼び出しが何秒も延びる)
+            self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=1)
             self._client_base_url = base_url
             self._client_api_key = api_key
     
+    # ---- 外部 LLM の疎通確認 ---------------------------------------------------------------
+    PROBE_INTERVAL_S = 60.0
+    PROBE_TIMEOUT_S = 3.0
+
+    def _set_external(self, ok: bool, detail: str) -> None:
+        prev = self._external.get("ok")
+        self._external = {"ok": ok, "detail": detail, "checked_at": time.time(), "base_url": self._effective_base_url()}
+        if prev is not ok:
+            if ok:
+                logger.info("外部 LLM: 接続 OK(%s, %s)→ 外部 LLM を使用", self._effective_base_url(), self._effective_model())
+            elif not settings.use_local_llm_only:
+                logger.warning("外部 LLM: 接続不可(%s: %s)→ 同梱 LLM を使用。%.0f 秒ごとに再確認し、つながれば外部に戻る",
+                               self._effective_base_url(), detail, self.PROBE_INTERVAL_S)
+
+    async def probe_external(self) -> bool:
+        """GET {base_url}/models で外部 LLM を確認する(生成はしない)。指定モデルが一覧に無ければ不可扱い。"""
+        if settings.use_local_llm_only:
+            self._external = {"ok": False, "detail": "--local-llm (external disabled)", "checked_at": time.time(),
+                              "base_url": self._effective_base_url()}
+            return False
+        base = self._effective_base_url().rstrip("/")
+        headers = {"Authorization": f"Bearer {self._effective_api_key()}"}
+        try:
+            async with httpx.AsyncClient(timeout=self.PROBE_TIMEOUT_S) as client:
+                r = await client.get(f"{base}/models", headers=headers)
+            if r.status_code != 200:
+                self._set_external(False, f"HTTP {r.status_code} from /models")
+                return False
+            try:
+                ids = [str(m.get("id", "")) for m in (r.json().get("data") or [])]
+            except Exception:  # noqa: BLE001
+                ids = []
+            model = self._effective_model()
+            if ids and model and not any(i == model or i.split(":")[0] == model.split(":")[0] for i in ids):
+                self._set_external(False, f"model {model} not served (has: {', '.join(ids[:5])})")
+                return False
+            self._set_external(True, f"{len(ids)} model(s)")
+            return True
+        except Exception as e:  # noqa: BLE001
+            self._set_external(False, f"{type(e).__name__}: {e}")
+            return False
+
+    def external_status(self) -> Dict[str, Any]:
+        return dict(self._external, model=self._effective_model(), local_only=bool(settings.use_local_llm_only))
+
+    def start_probe_task(self) -> None:
+        if self._probe_task and not self._probe_task.done():
+            return
+
+        async def _loop() -> None:
+            while True:
+                await asyncio.sleep(self.PROBE_INTERVAL_S)
+                try:
+                    await self.probe_external()
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("external LLM probe failed: %s", e)
+
+        self._probe_task = asyncio.create_task(_loop())
+
+    async def stop_probe_task(self) -> None:
+        if self._probe_task:
+            self._probe_task.cancel()
+            try:
+                await self._probe_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._probe_task = None
+
+    def _external_known_down(self) -> bool:
+        """直近の確認で接続不可で、まだ再確認の時刻になっていない(または接続先が変わっていない)"""
+        st = self._external
+        if st.get("ok") is not False:
+            return False
+        if st.get("base_url") != self._effective_base_url():
+            return False  # 接続先が変わった: 試す
+        return time.time() - float(st.get("checked_at") or 0) < self.PROBE_INTERVAL_S
+
     async def chat(
         self,
         user_message: str,
@@ -244,8 +331,8 @@ class LLMService:
         
         外部LLM失敗時はローカルLLM(Gemma 4 E4B GGUF、thinking OFF)にフォールバック
         """
-        # --local-llm モード: 外部LLMをスキップ
-        if not settings.use_local_llm_only:
+        # --local-llm モード、または外部 LLM が落ちていると分かっている間は外部をスキップ
+        if not settings.use_local_llm_only and not self._external_known_down():
             # まず外部LLMを試行
             try:
                 self._ensure_client()
@@ -259,18 +346,23 @@ class LLMService:
                     max_tokens=max_tokens,
                     temperature=temperature
                 )
+                if self._external.get("ok") is not True:
+                    self._set_external(True, "chat ok")
                 return completion.choices[0].message.content
+            except (APIConnectionError, APITimeoutError, httpx.ConnectError, httpx.TimeoutException) as ext_error:
+                # つながらない: 状態を「不可」にして、次の呼び出しからは試さない(定期確認で戻る)
+                self._set_external(False, f"{type(ext_error).__name__}: {ext_error}")
             except Exception as ext_error:
-                logger.warning(f"外部LLM接続失敗: {ext_error}")
-        else:
-            logger.info("内蔵LLMモード: 外部LLMをスキップ")
+                # つながったが生成に失敗(モデル名違い・400 など): この呼び出しだけ同梱 LLM に回す
+                logger.warning(f"外部LLMの生成に失敗(この呼び出しは同梱 LLM で続行): {ext_error}")
+        elif settings.use_local_llm_only:
+            logger.debug("内蔵LLMモード: 外部LLMをスキップ")
 
         # ローカルLLM
         try:
             from services.local_llm_service import local_llm_service
             if local_llm_service.is_available:
-                if not settings.use_local_llm_only:
-                    logger.info("ローカルLLMにフォールバックします")
+                logger.debug("同梱 LLM で生成します")
                 return await local_llm_service.chat(
                     user_message=user_message,
                     system_prompt=system_prompt,

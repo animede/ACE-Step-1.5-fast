@@ -19,7 +19,7 @@ import pickle
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Optional, Any, Dict
 from urllib.parse import urlparse
 
 import httpx
@@ -71,6 +71,10 @@ GENRE_VISUAL_HINTS: Dict[str, str] = {
 }
 
 
+class ImageServerUnavailable(RuntimeError):
+    """画像サーバに届かないので背景画像を作らない"""
+
+
 class ImageService:
     """音楽再生用背景画像生成サービス"""
 
@@ -101,6 +105,31 @@ class ImageService:
         path = self.cache_dir / f"{self._sanitize_image_id(image_id)}.png"
         return path if path.exists() else None
 
+    def has_reachable_server(self) -> Optional[bool]:
+        """疎通確認の結果(キャッシュ)で、どれか 1 台でも画像サーバに届くか。未確認なら None。"""
+        states = [self._server_health.get(u) for u in self._candidate_base_urls()]
+        known = [st for st in states if st is not None]
+        if not known:
+            return None
+        return any(bool(st.get("reachable")) for st in known)
+
+    async def probe_all(self) -> bool:
+        """全候補を今すぐ確認する(起動時の結論表示用)"""
+        ok = False
+        for base_url in self._candidate_base_urls():
+            try:
+                ok = await self._probe_base_url(base_url) or ok
+            except Exception:  # noqa: BLE001
+                pass
+        return ok
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "available": self.has_reachable_server(),
+            "url": settings.image_generation_url,
+            "servers": {u: dict(st) for u, st in self._server_health.items()},
+        }
+
     async def generate_background_image(
         self,
         *,
@@ -115,6 +144,14 @@ class ImageService:
     ) -> Dict[str, Any]:
         width = self._normalize_size(width, default=1296)
         height = self._normalize_size(height, default=728)
+
+        # 画像サーバが 1 台も届かないなら、LLM にプロンプトを書かせる前にやめる
+        # (以前は毎曲 LLM を呼び、止めた同梱 LLM を起こしてから画像サーバで失敗していた)
+        reachable = self.has_reachable_server()
+        if reachable is None:
+            reachable = await self.probe_all()
+        if not reachable:
+            raise ImageServerUnavailable(f"image server not reachable ({settings.image_generation_url}); background image skipped")
 
         prompt_bundle = await self._build_prompt_bundle(
             genre=genre,
@@ -305,14 +342,15 @@ class ImageService:
 
     def _candidate_base_urls(self) -> list[str]:
         raw_url = self._normalize_base_url(settings.image_generation_url)
-        public_url = self._normalize_base_url(settings.image_generation_fallback_url)
+        # 予備 URL は未設定(既定)なら候補に入れない(以前は "http://" になって毎回 unreachable の警告が出ていた)
+        public_url = self._normalize_base_url(settings.image_generation_fallback_url) if (settings.image_generation_fallback_url or "").strip() else ""
 
         parsed = urlparse(raw_url)
         candidates = []
         if parsed.hostname and parsed.port is None and (not parsed.path or parsed.path == "/"):
             candidates.append(f"{parsed.scheme}://{parsed.hostname}:64656")
         candidates.append(raw_url)
-        if public_url not in candidates:
+        if public_url and public_url not in candidates:
             candidates.append(public_url)
 
         unique = []

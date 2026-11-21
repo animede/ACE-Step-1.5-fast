@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-21 11:10 JST** — 生成の中止を追加: `POST /v1/cancel` でサーバ側のジョブを止める(待ち行列中は即、生成中は今のステップの後)。Easy Music に生成中だけ出る「中止」ボタン。Easy Music は前回選んだモデルを覚える(再起動で既定の XL-SFT に戻らない)。待ち時間を 5 分 → 15 分に。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-21 12:00 JST** — Easy Music が起動時と 60 秒ごとに外部 LLM と画像サーバの疎通を確認: 外部 LLM がつながらない間は毎回試さずに同梱 LLM を使い、画像サーバが無ければ背景画像の処理(LLM のプロンプト生成ごと)を飛ばす。起動ログに何を使うかを 1 行ずつ表示。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -169,6 +169,7 @@ cd ACE-Step-1.5-fast
 
 - 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは同梱の GGUF(Gemma 4 E4B Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)にフォールバックします。同梱 LLM の実体は llama.cpp の GitHub Releases にあるビルド済み `llama-server`(固定タグ b12475)で、初回のフォールバック時に `easy-music/tools/llama/` へ自動取得して子プロセスとして起動します(コンパイラ不要。`easy-music/.venv/bin/python easy-music/scripts/fetch_llama_server.py` で事前取得も可、`--cpu` で CPU 版)。既存のバイナリや GGUF を使うなら環境変数 `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)で指定できます。
 - **同梱 LLM の GPU 実行**(`LOCAL_LLM_GPU=auto`、既定): nvidia-smi が見える x64 の Windows / Linux では CUDA 版の `llama-server`(本体 + cudart、合計 0.6〜0.8GB)を取り、llama.cpp の `--fit` で**空き VRAM に入る層だけ** GPU に載せます(全部載ると約 3GB + KV)。ACE サーバが `12gb` プロファイルで待機している 3060 12GB でも同居でき、CPU(i3-10105)で 1 分 20 秒かかっていた歌詞が十数秒になります。ACE に生成を投げる直前に `llama-server` を止めて VRAM を返し(拡散のピーク 8.5GB のため)、ACE のタスクが終わる(`/api/status` が完了を返す)までは LLM の呼び出し(背景画像のプロンプト、曲名など)があっても GPU で起こさず待たせます。終わったあと次に LLM が要るときに起こし直します(ページキャッシュから数秒)。`LOCAL_LLM_GPU=off` で従来の CPU 版、`all` / 層数で固定、`LOCAL_LLM_STOP_BEFORE_ACE=0` で停止を無効(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+- **起動時の疎通確認**: Easy Music は起動時と 60 秒ごとに、外部 LLM(`GET /v1/models`、生成はしない。指定モデルが一覧に無ければ不可扱い)と画像サーバを確認し、起動ログに `[起動確認] 外部 LLM: 接続不可(...)→ 同梱 LLM(Gemma 4 E4B)を使用`、`[起動確認] 画像サーバ: 応答なし(...)→ 背景画像は作らない` のように結論を 1 行ずつ出します。外部 LLM がつながらない間は呼び出しのたびに試さず(以前はリトライ込みで 1 回 1〜15 秒待ち、毎回警告)、最初から同梱 LLM を使い、つながれば次の確認で外部に戻ります。画像サーバが無い間は背景画像を頼まず、LLM に画像プロンプトを書かせることもしません(以前は毎曲 LLM を呼び、止めた同梱 LLM を起こしてから失敗していた)。状態は `GET /api/services_status`。
 - **LLM 呼び出しを 1 回に**: 簡単モードでテーマも歌詞も空のまま生成を押すと、テーマ・歌詞・キャプションを 1 回の LLM 呼び出しでまとめて作ります(`/api/song_plan`)。3 回に分けると CPU 推論では毎回の入力の読み込み(20〜30 秒)が支配的になるためで、同じ文脈で書くので歌詞とキャプションの整合も良くなります。失敗したときは従来のテーマ → 歌詞 → キャプションの 3 段階に戻ります。テーマだけ・歌詞だけの作り直しボタンは従来どおりです。
 
 **LLM の指定方法**(起動引数 > `easy-music/.env` > 既定値 `http://localhost:11434/v1` の順に優先):

@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 import uvicorn
+import asyncio
 import logging
 
 from config import settings, apply_cli_args
@@ -91,6 +92,26 @@ async def log_base_urls_on_startup():
     ace_step_client.base_url = settings.ace_step_api_url.rstrip("/")
     image_service.start_health_check_task()
 
+    # 起動時の疎通確認: 外部 LLM と画像サーバを 1 回見て、何を使うかを 1 行ずつ出す(以後は定期確認)
+    from services.llm_service import llm_service
+    llm_service.start_probe_task()
+
+    async def _startup_probe():
+        ext = await llm_service.probe_external()
+        img = await image_service.probe_all()
+        if settings.use_local_llm_only:
+            logger.info("[起動確認] LLM: 同梱 LLM のみ(--local-llm)")
+        elif ext:
+            logger.info("[起動確認] 外部 LLM: 接続 OK(%s)→ 外部 LLM を使用", settings.openai_base_url)
+        else:
+            logger.info("[起動確認] 外部 LLM: 接続不可(%s)→ 同梱 LLM(Gemma 4 E4B)を使用", settings.openai_base_url)
+        if img:
+            logger.info("[起動確認] 画像サーバ: 接続 OK(%s)→ 再生画面の背景画像を作る", settings.image_generation_url)
+        else:
+            logger.info("[起動確認] 画像サーバ: 応答なし(%s)→ 背景画像は作らない(起動すれば自動で使い始める)", settings.image_generation_url)
+
+    asyncio.create_task(_startup_probe())
+
     logger.info("ACE-Step API Base URL: %s", settings.ace_step_api_url)
     logger.info("Image API Base URL: %s", settings.image_generation_url)
     if settings.use_local_llm_only:
@@ -105,6 +126,8 @@ async def stop_background_tasks():
     from services.image_service import image_service
 
     await image_service.stop_health_check_task()
+    from services.llm_service import llm_service
+    await llm_service.stop_probe_task()
 
 
 # =============================================================================

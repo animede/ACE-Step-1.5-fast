@@ -687,6 +687,19 @@ function getBackgroundImageSize() {
     return portrait ? { width: 728, height: 1296 } : { width: 1296, height: 728 };
 }
 
+// 画像サーバの疎通(サーバの定期確認の結果)。false のときは背景画像を頼まない(LLM のプロンプト生成も起きない)。
+// null = 未取得(従来どおり頼む。サーバ側でも届かなければ LLM を呼ぶ前にやめる)
+let imageServerAvailable = null;
+
+async function refreshServicesStatus() {
+    try {
+        const st = await apiRequest('/api/services_status');
+        const avail = st && st.image ? st.image.available : null;
+        if (avail !== imageServerAvailable) console.log('[EasyMusic] image server available:', avail, '| external LLM:', st && st.external_llm ? st.external_llm.ok : null);
+        imageServerAvailable = (avail === true || avail === false) ? avail : null;
+    } catch (_) { /* 取れなければ従来どおり */ }
+}
+
 async function generatePlaybackBackground({
     taskId,
     genre = '',
@@ -696,6 +709,7 @@ async function generatePlaybackBackground({
     omakaseQuery = '',
 }) {
     if (!taskId) return null;
+    if (imageServerAvailable === false) return null;  // 画像サーバが無い構成: 背景画像は作らない
     if (backgroundGenerationPromises.has(taskId)) {
         return backgroundGenerationPromises.get(taskId);
     }
@@ -1367,6 +1381,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 起動時にサーバーから利用可能モデルを取得
     loadAvailableModels();
+    // 外部 LLM・画像サーバの疎通(サーバ側で起動時と定期に確認した結果)を取り、以後 60 秒ごとに更新
+    refreshServicesStatus();
+    setInterval(refreshServicesStatus, 60000);
 });
 
 // =============================================================================

@@ -209,6 +209,7 @@ async def generate_background_image(request: BackgroundImageRequest):
             cached=result.get("cached", False),
         )
     except Exception as e:
+        # ImageServerUnavailable も含む(画像サーバが無い構成では正常系)
         return BackgroundImageResponse(success=False, error=str(e))
 
 
@@ -402,31 +403,35 @@ async def full_generate(request: FullGenerateRequest):
 async def llm_status():
     """
     LLM接続状況を返す（外部LLM / ローカルLLM の利用可否）
-    """
-    # 外部LLM接続テスト
-    external_ok = False
-    try:
-        llm_service._ensure_client()
-        # 軽量リクエストでテスト
-        await llm_service._client.chat.completions.create(
-            model=llm_service._effective_model(),
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=1,
-            temperature=0,
-        )
-        external_ok = True
-    except Exception:
-        pass
 
-    # ローカルLLM状態
+    外部 LLM は GET /models で確認する(以前は 1 トークン生成していて、外部が無いと同梱 LLM を起こしていた)。
+    """
+    external_ok = await llm_service.probe_external()
     local_status = {"available": False, "loaded": False, "model_downloaded": False}
     try:
         from services.local_llm_service import local_llm_service
         local_status = local_llm_service.get_status()
     except Exception:
         pass
-
     return {
         "external_llm": external_ok,
+        "external_detail": llm_service.external_status(),
         "local_llm": local_status,
+    }
+
+
+@router.get("/services_status")
+async def services_status():
+    """起動時・定期の疎通確認の結果(確認はしない、キャッシュを返すだけ)。フロントは画像サーバが無ければ背景画像を頼まない"""
+    from services.image_service import image_service
+    local_status = {}
+    try:
+        from services.local_llm_service import local_llm_service
+        local_status = local_llm_service.get_status()
+    except Exception:
+        pass
+    return {
+        "external_llm": llm_service.external_status(),
+        "local_llm": local_status,
+        "image": image_service.status(),
     }
