@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-21 13:30 JST** — Easy Music が初回の生成で「生成に失敗しました」になり、ACE サーバ側は最後まで生成していた問題を修正: タスク投入の応答待ちを 60 秒 → 120 秒(`ACE_SUBMIT_TIMEOUT`)にし、超えたら Easy Music が自分で決めた task_id でサーバ側の生成も中止して「もう一度生成を」と表示する。失敗時は理由をそのまま表示。`/release_task` に任意の `task_id`(UUID)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-21 17:10 JST** — 「実機の実測」の表を追加(RTX 3060 12GB の入門機で 3 分 15 秒の曲を 1 分 15 秒、A4000 16GB で 40 秒前後)。Easy Music で SFT 系のモデルを選ぶと生成が 500 になっていた不具合を修正。ACE サーバの起動中は Easy Music が生成ボタンを待たせて「準備中」を表示し、ACE の端末に「READY / 準備完了」を出す。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -91,7 +91,7 @@ cd ACE-Step-1.5-fast
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large`(PowerShell は `$env:ACESTEP_GPU_PROFILE = "large"`)のように指定。
-- **RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows ノート PC** で、セットアップから Easy Music での生成まで動作を確認済み(下の[8GB で動かす場合](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)の 5 つの環境変数を最初から全部入れて起動。3 分 19 秒の曲をローカル LLM 込みで 2 分 50 秒、CPU 負荷は 65% 前後)。環境変数を付けずに起動すると、VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなってフロントがタイムアウトする。
+- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て自動で `12gb` を選ぶ)。**8GB は次の 5 つを最初から全部入れて起動**する。付けずに起動すると VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなる。
 
 ```powershell
 $env:ACESTEP_GPU_PROFILE = "12gb"
@@ -144,6 +144,8 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888)。ジャンルを選んでワンクリックで曲を作る「簡単モード」、AI 作詞、ムード・ボーカルの指定、STEP 選択、インラインプレーヤー、履歴、背景画像の自動生成(別の画像生成サーバがある場合)、日英切替。開発元は [animede/easy_music](https://github.com/animede/easy_music)(MIT)。
 
 ![Easy Music の起動画面](easy-music/startupUI.png)
+
+**ACE サーバの準備待ち**: ACE サーバはモデルを読み込み終わるまで(初回は数分)接続を受け付けない。端末に `[API Server] READY / 準備完了` が出たら使える。Easy Music はそれまで生成ボタンを薄くして「ACE サーバの準備を待っています」を表示し、押しても生成しない。準備ができると自動で使えるようになり、モデル一覧も取り直す(以後も 30 秒ごとに確認)。
 
 **投入の待ち時間**: Easy Music はタスクを投入して ACE サーバの受付を最長 120 秒待つ(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT` で変更)。超えたらサーバ側の生成も中止し、「もう一度生成を」と表示する(生成が始まった直後の ACE が一時的に応答できないことがあり、長く待つより出し直すほうが早い)。
 
@@ -216,7 +218,7 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
 - 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。
-- **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つを**最初から全部**指定する(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して、極端に遅くなってフロントがタイムアウトする)。実測は 3 分 19 秒の曲を、歌詞生成のローカル LLM 込みで 2 分 50 秒(CPU 負荷は 65% 前後。LM と歌詞の LLM が CPU 側で動くため、CPU の弱い機械ではここが延びる)。曲の長さより短い時間で作れるので、連続生成(1 曲流している間に次を作る)が成り立つ。
+- **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つを**最初から全部**指定する(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して、極端に遅くなってフロントがタイムアウトする)。生成時間は下の[実機の実測](#実機の実測)。
 
   ```bash
   ACESTEP_GPU_PROFILE=12gb ACESTEP_LM_OFFLOAD_TO_CPU=1 ACESTEP_RESIDENT_COMPONENTS= ACESTEP_VAE_DECODE_CHUNK_SIZE=128 ACESTEP_QUANTIZATION=int8_weight_only ./run_api_server_fast.sh
@@ -229,7 +231,25 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
   - `ACESTEP_VAE_DECODE_CHUNK_SIZE=128`: decode のピークを −0.5GB(decode が約 2 秒遅くなる)。
   - `ACESTEP_QUANTIZATION=int8_weight_only`: 2B の重みを 4.8 → 2.4GB に。8GB ではこれが無いと足りない。速くはならず、音は bf16 と少し変わる。
   - RAM 16GB では Easy Music のローカル LLM(Gemma 4 E4B、約 4.4GB)と ACE サーバ(常駐約 4GB)が同居してぎりぎりなので、他の大きなアプリは閉じておく。
-  - 8GB でも同梱 LLM の GPU 実行(`LOCAL_LLM_GPU=auto`)は使える: `--fit` が空き VRAM に入る層だけ載せ、ACE に投げる直前に止める。4060 Laptop の i9 なら CPU でも 2 分 50 秒だったが、CPU の弱い機械ほど効く。
+  - 8GB でも同梱 LLM の GPU 実行(`LOCAL_LLM_GPU=auto`)は使える: `--fit` が空き VRAM に入る層だけ載せ、ACE に投げる直前に止める。CPU の弱い機械ほど効く。
+
+
+### 実機の実測
+
+Easy Music の簡単モード(ジャンルを選んで生成、テーマ・歌詞・キャプションは LLM が作る)で、生成ボタンを押してから曲ができるまで。LLM の時間(テーマ・歌詞・キャプション)と ACE の時間(CoT の LM 0.6B、DiT、デコード)を含みます。曲の長さは自動(AI 推定)。
+
+| 環境 | 起動・モデル | 曲の長さ → 生成時間 |
+|---|---|---|
+| RTX 3060 12GB / i3-10105(4 コア)/ RAM 32GB、Windows 10 | 何も付けない(自動で `12gb`)、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 25 秒 → 3 分 35 秒<br>続けて同じジャンル: 3 分 15 秒 → **1 分 15 秒**<br>ジャンルを変えて: 3 分 50 秒 → **2 分 1 秒** |
+| RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)、Windows 11 | [8GB の 5 つの指定](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)、2B turbo、同梱 LLM は CPU | 3 分 19 秒 → 2 分 50 秒(CPU 負荷 65% 前後) |
+| RTX A4000 16GB / Core Ultra 7 265KF / RAM 128GB、Ubuntu 24.04 | `12gb` を指定、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 13 秒 → **39 秒**<br>続けて同じジャンル: 3 分 22 秒 → **40 秒**<br>ジャンルを変えて: 3 分 0 秒 → **40 秒** |
+| 同上 | 何も付けない(自動で `16gb`)、2B turbo を選択 | 起動直後の 1 曲目: 3 分 35 秒 → 1 分 19 秒<br>続けて同じジャンル: 3 分 8 秒 → 39 秒<br>ジャンルを変えて: 3 分 35 秒 → 42 秒 |
+| 同上 | 何も付けない(自動で `16gb`)、XL-SFT(既定モデル、50 ステップ) | 2 分 55 秒 → 1 分 26 秒 |
+
+- 2 曲目からは、どの環境でも曲の長さより短い時間で作れるので、1 曲流している間に次を作る連続生成が成り立ちます。
+- A4000 の内訳は、LLM(テーマ・歌詞・キャプションを 1 回で)約 7 秒、ACE の `format_input` 約 5 秒、ACE の生成が 2B turbo で 25〜30 秒、XL-SFT で 74 秒です。Linux の行は、簡単モードと同じリクエストを同じ順に送るスクリプトで測りました(ブラウザ操作の時間は含みません)。
+- **起動直後の 1 曲目が遅い理由**: 同梱 LLM は起動時に空き VRAM を見て、入らない層を CPU に回します(llama.cpp の `--fit`)。A4000 の `16gb` は起動時に XL-SFT(約 10GB)を GPU に置くので、1 曲目の LLM は一部が CPU で動き、12.7 tok/s でした(全部 GPU なら 82 tok/s)。2B turbo で 1 曲作ると GPU 上のモデルが 2B turbo(4.8GB)に替わって空きが増え、2 曲目からは LLM が全部 GPU に載ります。`12gb` で起動すると最初から空きがあり、1 曲目から遅くなりません。3060 12GB は待機中の ACE で約 8GB を使うので空きが少なく、同じ理由で 1 曲目の LLM が i3 の CPU で動いて遅くなっていると見ています(推定)。
+- 3060 の入門機では CPU が律速です。同梱 LLM を CPU で動かしていたときは、歌詞だけで 1 分 20 秒かかっていました。GPU 実行(既定)とテーマ・歌詞・キャプションの 1 回化で、LLM の時間が十数秒になりました。
 
 ## 文書
 

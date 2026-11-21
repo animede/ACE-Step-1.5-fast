@@ -79,5 +79,7 @@ if not defined ACESTEP_API_HOST set ACESTEP_API_HOST=0.0.0.0
 if not defined ACESTEP_API_PORT set ACESTEP_API_PORT=8001
 if not defined ACESTEP_API_LOG_LEVEL set ACESTEP_API_LOG_LEVEL=info
 
+echo [run_api_server_fast] Starting the ACE server. Loading models takes a few minutes on the first start:
+echo [run_api_server_fast] wait for the line "[API Server] READY" before generating from Easy Music.
 python -m uvicorn acestep.api_server:app --host %ACESTEP_API_HOST% --port %ACESTEP_API_PORT% --workers 1 --log-level %ACESTEP_API_LOG_LEVEL%
 endlocal

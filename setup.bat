@@ -4,7 +4,7 @@ rem   setup.bat              16gb profile set: xl-sft, xl-turbo, 2B turbo, LM 0.
 rem   setup.bat --large      also LM 4B
 rem   setup.bat --12gb       2B only: 2B turbo, 2B base, LM 0.6B, no XL (ACESTEP_GPU_PROFILE=12gb)  ~15 GB
 rem   setup.bat --no-models  environment only
-rem Not yet verified on Windows (written from the Linux setup.sh; the Python side is the same).
+rem Verified on Windows 10 / 11 (RTX 3060 12GB, RTX 4060 Laptop 8GB). Mirrors the Linux setup.sh; the Python side is the same.
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 rem Hugging Face cache without symlinks: without Developer Mode, huggingface_hub's parallel downloads race on the

@@ -1972,3 +1972,10 @@ body::after {
     padding: 15px 20px;
     margin-left: 8px;
 }
+
+/* ACE サーバの準備待ち: 押しても生成せず「準備中」を出す */
+.generate-btn.ace-waiting {
+    opacity: 0.55;
+    filter: grayscale(0.6);
+    cursor: wait;
+}

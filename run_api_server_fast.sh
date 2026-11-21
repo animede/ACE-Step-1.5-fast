@@ -100,6 +100,8 @@ HOST="${ACESTEP_API_HOST:-0.0.0.0}"
 PORT="${ACESTEP_API_PORT:-8001}"
 LOG_LEVEL="${ACESTEP_API_LOG_LEVEL:-info}"
 
+echo "[run_api_server_fast] Starting the ACE server. Loading models takes a few minutes on the first start:"
+echo "[run_api_server_fast] wait for the line \"[API Server] READY\" before generating from Easy Music."
 exec python -m uvicorn acestep.api_server:app \
 	--host "$HOST" \
 	--port "$PORT" \

@@ -87,6 +87,10 @@ def _ace_finished() -> None:
         pass
 
 
+# SFT モデルのバッチサイズ上限（VRAM 安全対策: CFGありで実効バッチ×2のため）
+SFT_MAX_BATCH_SIZE = 2
+
+
 def clamp_batch_for_sft(model: Optional[str], batch_size: int) -> int:
     """SFT モデル選択時はバッチサイズを制限する（OOM 防止）"""
     if model and "sft" in model.lower() and batch_size > SFT_MAX_BATCH_SIZE:
@@ -531,6 +535,23 @@ async def get_languages():
 async def get_key_scales():
     """サポートキースケール一覧を取得"""
     return {"key_scales": SUPPORTED_KEY_SCALES}
+
+
+@router.get("/ace_ready")
+async def ace_ready():
+    """ACE サーバが生成を受け付けられるか。フロントは準備ができるまで「準備中」を出して生成を待たせる。
+
+    ACE はモデルを読み込み終わるまでポートを開かないので、起動中と未起動は区別できない(どちらも接続不可)。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{ace_step_client.base_url}/health", headers=ace_step_client._build_headers())
+        data = (r.json() or {}).get("data", {}) if r.status_code == 200 else {}
+        if r.status_code == 200 and data.get("models_initialized", True):
+            return {"ready": True, "url": ace_step_client.base_url}
+        return {"ready": False, "reason": "initializing", "url": ace_step_client.base_url}
+    except Exception as e:  # noqa: BLE001
+        return {"ready": False, "reason": "unreachable", "detail": f"{type(e).__name__}", "url": ace_step_client.base_url}
 
 
 @router.get("/health")

@@ -26,6 +26,8 @@ const I18N = {
         btn_generate: '🎵 音楽を生成',
         btn_generating: '<span class="spinner"></span> 生成中...',
         btn_cancel: '⏹ 中止',
+        status_ace_wait: '⏳ ACE サーバの準備を待っています。起動直後はモデルの読み込みに数分かかります。ACE サーバの端末に「準備完了」(READY)が出ると自動で生成できるようになります(起動していなければ run_api_server_fast を実行)',
+        status_ace_ready: '✅ ACE サーバの準備ができました',
         btn_cancel_title: 'サーバ側の生成も止めます（今のステップの後で停止）',
         status_cancelling: '⏹ 中止しています（サーバは今のステップの後で止まります）...',
         status_cancelled: '⏹ 生成を中止しました',
@@ -213,6 +215,8 @@ const I18N = {
         btn_generate: '🎵 Generate Music',
         btn_generating: '<span class="spinner"></span> Generating...',
         btn_cancel: '⏹ Cancel',
+        status_ace_wait: '⏳ Waiting for the ACE server. Right after start it loads models for a few minutes; generation unlocks when its console prints READY (if it is not running, start run_api_server_fast)',
+        status_ace_ready: '✅ ACE server is ready',
         btn_cancel_title: 'Also stops the server-side job (after the current step)',
         status_cancelling: '⏹ Cancelling (the server stops after the current step)...',
         status_cancelled: '⏹ Generation cancelled',
@@ -1395,6 +1399,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 起動時にサーバーから利用可能モデルを取得
     loadAvailableModels();
+    // ACE サーバの準備状態を見る(準備中は生成ボタンを待たせる)
+    checkAceReady();
     // 外部 LLM・画像サーバの疎通(サーバ側で起動時と定期に確認した結果)を取り、以後 60 秒ごとに更新
     refreshServicesStatus();
     setInterval(refreshServicesStatus, 60000);
@@ -2007,7 +2013,47 @@ function clearAutoLyrics() {
 // Main Generate Flow
 // =============================================================================
 
+// ACE サーバの準備状態。false の間は生成を受け付けず「準備中」を出す(起動直後に押すと受付が遅れて失敗するため)
+let aceReady = null;
+let aceWasWaiting = false;
+
+async function checkAceReady() {
+    let ready = false;
+    try {
+        const r = await apiRequest('/api/ace_ready');
+        ready = !!(r && r.ready);
+    } catch (_) { ready = false; }
+    const btn = document.getElementById('simple-generate-btn');
+    const busy = !!activeGenerationTaskId || (btn && btn.disabled && !btn.classList.contains('ace-waiting'));
+    if (!ready) {
+        aceReady = false;
+        if (!busy) {
+            aceWasWaiting = true;
+            if (btn) { btn.classList.add('ace-waiting'); btn.title = t('status_ace_wait'); }
+            showSimpleStatus(t('status_ace_wait'), 'info');
+        }
+    } else {
+        const wasWaiting = aceWasWaiting;
+        aceReady = true;
+        aceWasWaiting = false;
+        if (btn) { btn.classList.remove('ace-waiting'); btn.title = ''; }
+        if (wasWaiting) {
+            showSimpleStatus(t('status_ace_ready'), 'success');
+            setTimeout(() => { if (aceReady) hideSimpleStatus(); }, 4000);
+            // 準備前に取れなかったモデル一覧を取り直す
+            loadAvailableModels();
+            loadModelInfo();
+        }
+    }
+    // 準備中は 3 秒ごと、準備後は 30 秒ごとに見る(後から ACE が落ちたときも気づけるように)
+    setTimeout(checkAceReady, aceReady ? 30000 : 3000);
+}
+
 async function generateSimple() {
+    if (aceReady === false) {
+        showSimpleStatus(t('status_ace_wait'), 'info');
+        return;
+    }
     // ---- Cover/Repaint モード判定 ----
     if (coverMode) return generateCover();
     if (repaintMode) return generateRepaint();

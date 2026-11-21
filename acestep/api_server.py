@@ -291,6 +291,10 @@ def create_app() -> FastAPI:
             cleanup_job_temp_files=_cleanup_job_temp_files_for_job,
             cleanup_interval_seconds=JOB_STORE_CLEANUP_INTERVAL,
         )
+        _t_init = time.time()
+        print("[API Server] Loading models... this can take several minutes on the first start. "
+              "Wait for the 'READY' line before generating. / モデルを読み込み中です(初回は数分)。"
+              "「準備完了」が出るまで生成は待ってください", flush=True)
         initialize_models_at_startup(
             app=app,
             handler=handler,
@@ -304,6 +308,9 @@ def create_app() -> FastAPI:
             ensure_model_downloaded=_ensure_model_downloaded,
             env_bool=_env_bool,
         )
+        _port = os.getenv("ACESTEP_API_PORT", "8001")
+        print(f"[API Server] READY / 準備完了 ({time.time() - _t_init:.0f}s): http://localhost:{_port}/ui/ "
+              "(Easy Music can generate now / Easy Music から生成できます)", flush=True)
         try:
             yield
         finally:
