@@ -439,6 +439,7 @@ curl -X POST http://localhost:8001/query_result \
 - A running task stops **after the current diffusion step** (the loop checks the request every step), so the GPU is free within seconds.
 - `/query_result` reports it as `status: 2` with `error: "cancelled by client"`.
 - Response: `{"task_id": ..., "status": "cancelled" | "cancelling" | "succeeded" | "failed"}`; unknown task_id → 404.
+- `/release_task` accepts an optional `task_id` (UUID); the task is created under that ID (duplicate → 409, not a UUID → 400), so a client that never got the submit response can still cancel it.
 
 ## 6. Format Input
 

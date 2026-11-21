@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     # ACE-Step API設定
     ace_step_api_url: str = "http://localhost:8001"
     ace_step_api_key: Optional[str] = None
+    ace_submit_timeout: float = 120.0  # タスク投入の応答待ち(秒)。超えたらサーバ側も中止して「もう一度」を促す。ACE_SUBMIT_TIMEOUT で変更
     
     # LLM設定（作詞/タグ生成用）
     openai_base_url: str = "http://localhost:11434/v1"

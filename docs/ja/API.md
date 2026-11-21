@@ -436,6 +436,7 @@ curl -X POST http://localhost:8001/query_result \
 - 生成中のタスクは拡散ループが各ステップで中止要求を見て、**今のステップの後**で止まる(数秒以内)。GPU はすぐ次のタスクに回る。
 - `/query_result` では `status: 2`、`error: "cancelled by client"` として返る。
 - 応答: `{"task_id": ..., "status": "cancelled" | "cancelling" | "succeeded" | "failed"}`。知らない task_id は 404。
+- `/release_task` に任意で `task_id`(UUID)を付けると、その ID でタスクが作られる(同じ ID は 409、UUID でなければ 400)。投入の応答を受け取れなかったクライアントも、その ID で中止できる。
 
 ## 6. 入力のフォーマット
 

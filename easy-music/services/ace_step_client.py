@@ -164,6 +164,17 @@ class AceStepClient:
     async def _get_async_client(self) -> httpx.AsyncClient:
         """非同期HTTPクライアントを取得"""
         return httpx.AsyncClient(timeout=self.timeout)
+
+    # タスク投入(/release_task)は受け付けるだけなのですぐ返るはずだが、生成が始まった直後の ACE サーバは
+    # (Windows で VRAM が満杯に近いときなど)応答が遅れることがある。待ちは settings.ace_submit_timeout
+    # (既定 120 秒 = 短い曲 1 本ぶん)。投入時に task_id をこちらで決めて送るので、時間切れでも
+    # その ID で /v1/cancel でき、サーバ側で曲が宙に浮かない。
+    def submit_timeout(self) -> httpx.Timeout:
+        read = max(10.0, float(settings.ace_submit_timeout))
+        return httpx.Timeout(connect=10.0, read=read, write=60.0, pool=60.0)
+
+    async def _get_submit_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self.submit_timeout())
     
     def _build_headers(self) -> Dict[str, str]:
         """リクエストヘッダーを構築"""
@@ -233,7 +244,7 @@ class AceStepClient:
         # 追加パラメータ
         payload.update(kwargs)
         
-        async with await self._get_async_client() as client:
+        async with await self._get_submit_client() as client:
             response = await client.post(
                 f"{self.base_url}/release_task",
                 json=payload,
@@ -489,7 +500,7 @@ class AceStepClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        async with await self._get_async_client() as client:
+        async with await self._get_submit_client() as client:
             response = await client.post(
                 f"{self.base_url}/release_task",
                 data=form_fields,

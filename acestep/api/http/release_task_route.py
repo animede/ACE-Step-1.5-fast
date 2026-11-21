@@ -3,12 +3,33 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 import os
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from acestep.api.http.release_task_request_parser import parse_release_task_request
+
+
+async def _client_task_id(request: Request) -> Optional[str]:
+    """Body (JSON or form, already cached by the parser) の task_id を UUID として読む。無効・無しは None。"""
+    content_type = (request.headers.get("content-type") or "").lower()
+    raw = None
+    try:
+        if "json" in content_type:
+            body = await request.json()
+            raw = body.get("task_id") if isinstance(body, dict) else None
+        elif "form" in content_type:
+            raw = (await request.form()).get("task_id")
+    except Exception:  # noqa: BLE001
+        return None
+    if not raw:
+        return None
+    try:
+        return str(uuid.UUID(str(raw)))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="task_id must be a UUID")
 
 
 def register_release_task_route(
@@ -63,7 +84,12 @@ def register_release_task_route(
             lm_default_top_p=lm_default_top_p,
         )
 
-        record = store.create()
+        # 任意: クライアントが task_id を決めて送れる(UUID 形式)。投入の応答が遅れてクライアントが待ちを
+        # やめても、その ID で /v1/cancel できる(応答を受け取れないと ID が分からず、曲が宙に浮くため)。
+        client_task_id = await _client_task_id(request)
+        if client_task_id and store.get(client_task_id) is not None:
+            raise HTTPException(status_code=409, detail=f"task_id {client_task_id} already exists")
+        record = store.create_with_id(client_task_id) if client_task_id else store.create()
         queue_ref: asyncio.Queue = app.state.job_queue
         if queue_ref.full():
             for temp_path in temp_files:

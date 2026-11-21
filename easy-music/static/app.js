@@ -645,6 +645,20 @@ function sanitizeCaption(text) {
     return text;
 }
 
+/** "HTTP 500: {"detail":"..."}" のようなエラー文から、サーバが書いた理由(detail / error)を取り出す */
+function readableErrorMessage(msg) {
+    const m = String(msg || '');
+    const brace = m.indexOf('{');
+    if (brace >= 0) {
+        try {
+            const obj = JSON.parse(m.slice(brace));
+            const d = obj && (obj.detail || obj.error || obj.message);
+            if (typeof d === 'string' && d.trim()) return d.trim();
+        } catch (_) { /* JSON でなければそのまま */ }
+    }
+    return m;
+}
+
 async function apiRequest(endpoint, method = 'GET', data = null) {
     const options = { method, headers: { 'Content-Type': 'application/json' } };
     if (data) options.body = JSON.stringify(data);
@@ -1569,7 +1583,7 @@ async function generateCover() {
         });
     } catch (e) {
         console.error('[EasyMusic] Cover generation failed:', e);
-        showSimpleStatus('❌ Cover: ' + e.message, 'error');
+        showSimpleStatus('❌ Cover: ' + readableErrorMessage(e.message), 'error');
     } finally {
         btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = '<span data-i18n="btn_generate">' + t('btn_generate') + '</span>';
@@ -1649,7 +1663,7 @@ async function generateRepaint() {
         });
     } catch (e) {
         console.error('[EasyMusic] Repaint generation failed:', e);
-        showSimpleStatus('❌ Repaint: ' + e.message, 'error');
+        showSimpleStatus('❌ Repaint: ' + readableErrorMessage(e.message), 'error');
     } finally {
         btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = '<span data-i18n="btn_generate">' + t('btn_generate') + '</span>';
@@ -1923,7 +1937,7 @@ async function generateOmakase(query) {
         removeHistoryEntry(taskId);
         throw new Error(t('status_timeout'));
     } catch (e) {
-        showSimpleStatus('❌ ' + e.message, 'error');
+        showSimpleStatus('❌ ' + readableErrorMessage(e.message), 'error');
     } finally {
         btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = `<span data-i18n="btn_generate">${t('btn_generate')}</span>`;
@@ -2488,15 +2502,14 @@ async function generateSimple() {
         throw new Error(t('status_timeout'));
 
     } catch (e) {
-        // エラーメッセージをユーザーフレンドリーに整形
-        let errMsg = e.message || t('status_unknown');
-        // JSON文字列がそのまま含まれていたら除去
+        // エラーメッセージを読める形に: サーバが書いた理由(detail)を優先し、取れない JSON だけ汎用文に
+        let errMsg = readableErrorMessage(e.message) || t('status_unknown');
         if (errMsg.includes('[{') || errMsg.includes('{"')) {
             errMsg = t('status_fail_retry');
         }
-        // 長すぎるメッセージは切り詰め
-        if (errMsg.length > 100) {
-            errMsg = errMsg.substring(0, 100) + '…';
+        // 長すぎるメッセージは切り詰め(理由と次にやることが入るので 200 字まで)
+        if (errMsg.length > 200) {
+            errMsg = errMsg.substring(0, 200) + '…';
         }
         showSimpleStatus(t('status_error') + errMsg, 'error');
         hideSimpleProgress();

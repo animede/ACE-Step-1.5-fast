@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-21 12:00 JST** — Easy Music が起動時と 60 秒ごとに外部 LLM と画像サーバの疎通を確認: 外部 LLM がつながらない間は毎回試さずに同梱 LLM を使い、画像サーバが無ければ背景画像の処理(LLM のプロンプト生成ごと)を飛ばす。起動ログに何を使うかを 1 行ずつ表示。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-21 13:30 JST** — Easy Music が初回の生成で「生成に失敗しました」になり、ACE サーバ側は最後まで生成していた問題を修正: タスク投入の応答待ちを 60 秒 → 120 秒(`ACE_SUBMIT_TIMEOUT`)にし、超えたら Easy Music が自分で決めた task_id でサーバ側の生成も中止して「もう一度生成を」と表示する。失敗時は理由をそのまま表示。`/release_task` に任意の `task_id`(UUID)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -130,7 +130,7 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 ## 使い方
 
 - **Web UI**: サーバ起動後に `http://<host>:<port>/ui/` を開く。モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint、簡易モード(説明から LM が曲を考える)、LM の設定、結果の再生と履歴(seed の再利用)、サーバのモデル管理(GPU 上のモデルの確認・事前切替・slot の入れ替え)。
-- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)になり、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` でスロットに読み込む(数十秒)。VRAM に載らないモデル(12GB 未満への XL など)は `/v1/init` が `VRAM too small` で断る。`GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。 `POST /v1/cancel {"task_id": ...}` で中止(待ち行列中は即、生成中は今のステップの後で止まり、結果は status 2・error `cancelled by client`)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
+- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)になり、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` でスロットに読み込む(数十秒)。VRAM に載らないモデル(12GB 未満への XL など)は `/v1/init` が `VRAM too small` で断る。`GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。 `/release_task` には任意で `task_id`(UUID)を付けられ、投入の応答を受け取れなかったときもその ID で中止できる(同じ ID は 409)。 `POST /v1/cancel {"task_id": ...}` で中止(待ち行列中は即、生成中は今のステップの後で止まり、結果は status 2・error `cancelled by client`)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
 - **学習(LoRA / LoKr)**: API の `/train` 系ルートと `acestep/training_v2`。手順は [docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(オリジナルのまま。コマンドライン版 `train.py` は削除済み)。
 
 ## 外部アプリからの利用(API 互換性)
@@ -144,6 +144,8 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 この API を使う本格的な Web アプリの例で、このリポジトリに同梱しています(別プロセス、ポート 8888)。ジャンルを選んでワンクリックで曲を作る「簡単モード」、AI 作詞、ムード・ボーカルの指定、STEP 選択、インラインプレーヤー、履歴、背景画像の自動生成(別の画像生成サーバがある場合)、日英切替。開発元は [animede/easy_music](https://github.com/animede/easy_music)(MIT)。
 
 ![Easy Music の起動画面](easy-music/startupUI.png)
+
+**投入の待ち時間**: Easy Music はタスクを投入して ACE サーバの受付を最長 120 秒待つ(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT` で変更)。超えたらサーバ側の生成も中止し、「もう一度生成を」と表示する(生成が始まった直後の ACE が一時的に応答できないことがあり、長く待つより出し直すほうが早い)。
 
 **中止ボタン**: 生成中だけ「⏹ 中止」が出る。フロントの待ちをやめるだけでなく、ACE サーバのジョブも `/v1/cancel` で止める(今のステップの後、数秒以内)。止めないとサーバは曲の最後まで GPU を使い続け、次の生成がそのぶん待たされる。
 

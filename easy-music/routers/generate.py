@@ -36,6 +36,39 @@ async def _release_local_llm() -> None:
         logger.warning(f"[generate] could not stop local LLM: {e}")
 
 
+def _new_task_id() -> str:
+    """ACE に渡す task_id(UUID)。投入の応答を受け取れなくても、この ID で中止できる。"""
+    import uuid
+    return str(uuid.uuid4())
+
+
+async def _submit_error(e: Exception, task_id: str = "", what: str = "音楽生成タスク") -> HTTPException:
+    """ACE へのタスク投入で起きた例外を、理由と次にやることが読める HTTPException にする。
+
+    応答待ちの時間切れ(settings.ace_submit_timeout)では、サーバ側にタスクが作られている可能性があるので
+    その task_id で /v1/cancel を送ってから返す(生成を続けさせると次の生成がそのぶん待たされる)。
+    """
+    log = logging.getLogger("uvicorn.error")
+    if isinstance(e, httpx.TimeoutException):
+        wait = int(settings.ace_submit_timeout)
+        log.error("ACE-Step API の応答待ちがタイムアウト(%s、%d 秒、%s): %r", what, wait, settings.ace_step_api_url, e)
+        cancelled = ""
+        if task_id:
+            try:
+                r = await ace_step_client.cancel_task(task_id)
+                state = ((r or {}).get("data") or {}).get("status") if isinstance(r, dict) else None
+                log.info("[submit timeout] cancel %s -> %s", task_id, state or r)
+                cancelled = "サーバ側の生成も中止しました。" if state in ("cancelled", "cancelling") else ""
+            except Exception as ce:  # noqa: BLE001
+                log.warning("[submit timeout] cancel %s failed: %s", task_id, ce)
+            finally:
+                _ace_finished()
+        return HTTPException(status_code=504, detail=(
+            f"ACE サーバが {wait} 秒以内に{what}を受け付けませんでした。{cancelled}もう一度「生成」を押してください"
+            "(続けて起きるときは ACE サーバの端末を確認)"))
+    log.exception("%s の作成に失敗: %s: %s", what, type(e).__name__, e)
+    return HTTPException(status_code=500, detail=f"{what}の作成に失敗: {type(e).__name__}: {e}"[:400])
+
 def _ace_started() -> None:
     """ACE タスクが作れたときに呼ぶ(task_id が返った後)。この間、同梱 LLM は GPU で起こさない。"""
     try:
@@ -190,6 +223,7 @@ async def generate_music(request: GenerateRequest):
     
     タスクIDを返し、完了を待たない非同期処理
     """
+    submit_task_id = ""
     try:
         extra_params: Dict[str, Any] = {}
         if request.model:
@@ -224,7 +258,9 @@ async def generate_music(request: GenerateRequest):
         effective_batch = clamp_batch_for_sft(request.model, request.batch_size)
 
         await _release_local_llm()
+        submit_task_id = _new_task_id()
         result = await ace_step_client.release_task(
+            task_id=submit_task_id,
             prompt=sanitize_caption(request.prompt),
             lyrics=request.lyrics,
             thinking=request.thinking,
@@ -268,7 +304,7 @@ async def generate_music(request: GenerateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise await _submit_error(e, submit_task_id)
 
 
 @router.post("/cancel/{task_id}")
@@ -404,6 +440,7 @@ async def generate_and_wait(request: GenerateAndWaitRequest):
     
     同期的に結果を返す
     """
+    submit_task_id = ""
     try:
         extra_params: Dict[str, Any] = {}
         if request.model:
@@ -412,7 +449,9 @@ async def generate_and_wait(request: GenerateAndWaitRequest):
         # タスク作成（SFT バッチ制限適用）
         effective_batch = clamp_batch_for_sft(request.model, request.batch_size)
         await _release_local_llm()
+        submit_task_id = _new_task_id()
         result = await ace_step_client.release_task(
+            task_id=submit_task_id,
             prompt=request.prompt,
             lyrics=request.lyrics,
             thinking=request.thinking,
@@ -473,9 +512,12 @@ async def generate_and_wait(request: GenerateAndWaitRequest):
             error=str(e)
         )
     except Exception as e:
+        if isinstance(e, httpx.TimeoutException):  # 投入の応答待ち切れ: サーバ側も中止して理由を返す
+            return GenerateAndWaitResponse(success=False, error=(await _submit_error(e, submit_task_id)).detail)
+        logging.getLogger("uvicorn.error").exception("generate_and_wait failed: %s: %s", type(e).__name__, e)
         return GenerateAndWaitResponse(
             success=False,
-            error=str(e)
+            error=f"{type(e).__name__}: {e}"
         )
 
 
@@ -658,6 +700,7 @@ async def generate_cover(
 
     ソース音声をアップロードし、声質・スタイルを参照して新しい音楽を生成
     """
+    submit_task_id = ""
     try:
         src_audio_bytes = await src_audio.read()
         src_audio_filename = src_audio.filename or "upload.mp3"
@@ -711,6 +754,8 @@ async def generate_cover(
             form_fields["infer_method"] = infer_method
 
         await _release_local_llm()
+        submit_task_id = _new_task_id()
+        form_fields["task_id"] = submit_task_id
         result = await ace_step_client.release_task_multipart(
             form_fields=form_fields,
             src_audio_bytes=src_audio_bytes,
@@ -742,7 +787,7 @@ async def generate_cover(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise await _submit_error(e, submit_task_id)
 
 
 @router.post("/generate_repaint", response_model=GenerateResponse)
@@ -778,6 +823,7 @@ async def generate_repaint(
 
     元の音声をアップロードし、指定区間のみを再生成する
     """
+    submit_task_id = ""
     try:
         src_audio_bytes = await src_audio.read()
         src_audio_filename = src_audio.filename or "upload.mp3"
@@ -826,6 +872,8 @@ async def generate_repaint(
             form_fields["infer_method"] = infer_method
 
         await _release_local_llm()
+        submit_task_id = _new_task_id()
+        form_fields["task_id"] = submit_task_id
         result = await ace_step_client.release_task_multipart(
             form_fields=form_fields,
             src_audio_bytes=src_audio_bytes,
@@ -856,7 +904,7 @@ async def generate_repaint(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise await _submit_error(e, submit_task_id)
 
 
 # ---------------------------------------------------------------------------
