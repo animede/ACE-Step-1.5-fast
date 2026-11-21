@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-22 10:30 JST** — 8GB のカードは起動バッチだけで動くように: VRAM 10GB 未満なら 8GB 向けの 5 つの設定(LM・VAE 退避、decode chunk 128、int8)を自動で入れる(デスクトップの RTX 4060 8GB で `12gb` のまま起動して失敗したため)。Windows で `ACESTEP_RESIDENT_COMPONENTS=` の空指定が効かず既定の vae に戻っていたのを `none` に。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-22 11:40 JST** — 8GB 級では同梱 LLM を CPU で動かす(GPU に載せると ACE の LM・TE が上がる段階で共有 GPU メモリへあふれ、4060 8GB で 5.5GB まで増えた)。`format_input` の前にも同梱 LLM を止める。Easy Music の投入の待ち時間を 120 秒 → 5 分に。8GB のカードは起動バッチだけで動くように。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
@@ -153,7 +153,7 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 
 - 外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)を使い、つながらなければ同梱の Gemma 4 E4B(GGUF Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)を使います。外部の既定は `http://localhost:11434/v1`(Ollama)。
 - 同梱 LLM の実体は llama.cpp のビルド済み `llama-server`(固定タグ b12475)で、初回に `easy-music/tools/llama/` へ自動で取ってきて子プロセスとして動かします(コンパイラ不要。`easy-music/scripts/fetch_llama_server.py` で事前取得も可)。既存のバイナリや GGUF を使うなら `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)。
-- **GPU で動かす**(`LOCAL_LLM_GPU=auto`、既定): NVIDIA GPU があれば CUDA 版の `llama-server`(本体 + cudart、0.6〜0.8GB)を取り、空き VRAM に入る層だけ GPU に載せます(llama.cpp の `--fit`。全部載ると約 3GB + KV)。ACE に生成を投げる直前に止めて VRAM を返し、ACE の生成が終わるまでは起こしません(曲名や背景画像のプロンプトはその後に作る)。`LOCAL_LLM_GPU=off` で CPU 版、`all` / 層数で固定。`LOCAL_LLM_STOP_BEFORE_ACE=0` で止めない(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+- **GPU で動かす**(`LOCAL_LLM_GPU=auto`、既定): NVIDIA GPU があれば CUDA 版の `llama-server`(本体 + cudart、0.6〜0.8GB)を取り、空き VRAM に入る層だけ GPU に載せます(llama.cpp の `--fit`。全部載ると約 3GB + KV)。ACE に生成を投げる直前と、ACE の `format_input`(LM とテキストエンコーダが GPU に上がる)の前に止めて VRAM を返し、ACE の生成が終わるまでは起こしません(曲名や背景画像のプロンプトはその後に作る)。**VRAM 10GB 未満(8GB 級)では auto は CPU で動かします**(ACE の待機約 4GB と同居すると、ACE の LM・TE が上がる段階で共有 GPU メモリへあふれるため。4060 8GB で共有が 5.5GB まで増えた)。`LOCAL_LLM_GPU=off` で CPU 版、`all` / 層数で GPU に固定。`LOCAL_LLM_STOP_BEFORE_ACE=0` で止めない(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
 - **呼び出しは 1 回**: 簡単モードでテーマも歌詞も空のまま生成を押すと、テーマ・歌詞・キャプションを 1 回の呼び出しでまとめて作ります(`/api/song_plan`)。失敗したときはテーマ → 歌詞 → キャプションの 3 回に戻ります。
 - **疎通確認**: 起動時と 60 秒ごとに外部 LLM(`GET /v1/models`。生成はしない。指定モデルが一覧に無ければ使えない扱い)と画像サーバを確かめ、起動ログに `[起動確認] 外部 LLM: 接続不可(...)→ 同梱 LLM(Gemma 4 E4B)を使用` のように 1 行ずつ出します。使えない間は呼び出しのたびに試さず、つながれば次の確認で外部に戻ります。状態は `GET /api/services_status`。
 
@@ -180,7 +180,7 @@ ACE サーバは `--ace-url` / `ACE_STEP_API_URL`、背景画像サーバは `--
 #### 生成の流れと待ち時間
 
 - **ACE サーバの準備待ち**: ACE サーバはモデルを読み込み終わるまで(初回は数分)接続を受け付けません。端末に `[API Server] READY / 準備完了` が出たら使えます。Easy Music はそれまで生成ボタンを薄くして「ACE サーバの準備を待っています」を出し、押しても生成しません。準備ができると自動で使えるようになり、モデル一覧も取り直します(以後も 30 秒ごとに確認)。
-- **投入の待ち時間**: タスクを投入して ACE サーバの受付を最長 120 秒待ちます(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT`)。超えたらサーバ側の生成も中止して「もう一度生成を」と出します。
+- **投入の待ち時間**: タスクを投入して ACE サーバの受付を最長 5 分(300 秒)待ちます(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT`)。超えたらサーバ側の生成も中止して「もう一度生成を」と出します。
 - **中止ボタン**: 生成中だけ「⏹ 中止」が出ます。フロントの待ちをやめるだけでなく、ACE サーバの生成も `/v1/cancel` で止めます(今のステップの後、数秒以内)。
 - **モデルの選択**: プルダウンにはサーバの `checkpoints/` にある DiT が全部並びます。読み込まれていないものは「(未読込・選ぶと切替)」で、選んで生成を押すとその場で読み込みます(XL で数十秒〜1 分。primary 以外のスロットを使うので既定モデルはそのまま)。この GPU に載らないもの(12GB 級で XL など)は「(このGPUには載らない)」で選べません。前回選んだモデルはブラウザに覚えておき、起動し直しても同じものを選びます。
 
@@ -223,7 +223,7 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
   - `ACESTEP_VAE_DECODE_CHUNK_SIZE=128`: decode のピークを −0.5GB(decode が約 2 秒遅くなる)。
   - `ACESTEP_QUANTIZATION=int8_weight_only`: 2B の重みを 4.8 → 2.4GB に。8GB ではこれが無いと足りない。速くはならず、音は bf16 と少し変わる。
   - RAM 16GB では Easy Music のローカル LLM(Gemma 4 E4B、約 4.4GB)と ACE サーバ(常駐約 4GB)が同居してぎりぎりなので、他の大きなアプリは閉じておく。
-  - 8GB でも同梱 LLM の GPU 実行(`LOCAL_LLM_GPU=auto`)は使える: `--fit` が空き VRAM に入る層だけ載せ、ACE に投げる直前に止める。CPU の弱い機械ほど効く。
+  - 8GB では同梱 LLM は CPU で動く(`LOCAL_LLM_GPU=auto` の既定。GPU に載せると ACE の LM・TE が上がる段階であふれ、共有 GPU メモリが 5GB 以上に増えた)。`LOCAL_LLM_GPU=all` で GPU に固定できるが 12GB 以上向け。
 
 ### 実機の実測
 

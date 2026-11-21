@@ -90,15 +90,27 @@ def gpu_setting() -> str:
     return (os.environ.get("LOCAL_LLM_GPU", "").strip() or "auto").lower()
 
 
+GPU_AUTO_MIN_TOTAL_MIB = 10000   # auto で GPU を使う最小の VRAM(8GB 級は CPU: ACE の待機 4GB + LLM + ACE の LM/TE が入らない)
+
+
+def nvidia_total_mib() -> Optional[int]:
+    """最初の GPU の VRAM 総量(MiB)。nvidia-smi が無ければ None。"""
+    return _nvidia_query("memory.total")
+
+
 def nvidia_free_mib() -> Optional[int]:
     """最初の GPU(CUDA_VISIBLE_DEVICES があればその GPU)の空き VRAM(MiB)。nvidia-smi が無ければ None。"""
+    return _nvidia_query("memory.free")
+
+
+def _nvidia_query(field: str) -> Optional[int]:
     exe = shutil.which("nvidia-smi")
     if exe is None and sys.platform == "win32":
         cand = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe")
         exe = cand if os.path.exists(cand) else None
     if exe is None:
         return None
-    cmd = [exe, "--query-gpu=memory.free", "--format=csv,noheader,nounits"]
+    cmd = [exe, f"--query-gpu={field}", "--format=csv,noheader,nounits"]
     vis = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")[0].strip()
     if vis:
         cmd[1:1] = ["-i", vis]
@@ -120,7 +132,15 @@ def use_gpu() -> bool:
     if not (x64 and cuda_platform):
         return False
     if mode == "auto":
-        return nvidia_free_mib() is not None
+        total = nvidia_total_mib()
+        if total is None:
+            return False
+        if total < GPU_AUTO_MIN_TOTAL_MIB:
+            # 8GB 級: ACE(8GB 向け設定で待機 約 4GB)と同居すると、ACE の LM・TE が上がる段階であふれる。
+            # CPU で動かす(GPU にしたいときは LOCAL_LLM_GPU=all か層数を指定)
+            logger.info("ローカルLLM: VRAM %d MiB は %d MiB 未満なので CPU で動かします(LOCAL_LLM_GPU=all で GPU)", total, GPU_AUTO_MIN_TOTAL_MIB)
+            return False
+        return True
     return True
 
 

@@ -167,7 +167,7 @@ class AceStepClient:
 
     # タスク投入(/release_task)は受け付けるだけなのですぐ返るはずだが、生成が始まった直後の ACE サーバは
     # (Windows で VRAM が満杯に近いときなど)応答が遅れることがある。待ちは settings.ace_submit_timeout
-    # (既定 120 秒 = 短い曲 1 本ぶん)。投入時に task_id をこちらで決めて送るので、時間切れでも
+    # (既定 300 秒 = 5 分。120 秒では実機で足りないことがあった)。投入時に task_id をこちらで決めて送るので、時間切れでも
     # その ID で /v1/cancel でき、サーバ側で曲が宙に浮かない。
     def submit_timeout(self) -> httpx.Timeout:
         read = max(10.0, float(settings.ace_submit_timeout))

@@ -669,6 +669,9 @@ async def format_input(request: FormatInputRequest):
     ACE-Step の /format_input を呼び出し、caption/lyrics/BPM等を返す
     """
     try:
+        # ACE の format_input は LM(1.3GB)とテキストエンコーダ(1.2GB)を GPU に上げる。同梱 LLM が GPU に
+        # 残っていると 8GB では合計が越えて共有 GPU メモリへあふれるので、ここでも先に止める(次の呼び出しで起き直す)
+        await _release_local_llm()
         result = await ace_step_client.format_input(
             prompt=request.prompt,
             lyrics=request.lyrics,
