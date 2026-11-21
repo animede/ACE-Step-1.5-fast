@@ -1,14 +1,15 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-21 17:10 JST** — 「実機の実測」の表を追加(RTX 3060 12GB の入門機で 3 分 15 秒の曲を 1 分 15 秒、A4000 16GB で 40 秒前後)。Easy Music で SFT 系のモデルを選ぶと生成が 500 になっていた不具合を修正。ACE サーバの起動中は Easy Music が生成ボタンを待たせて「準備中」を表示し、ACE の端末に「READY / 準備完了」を出す。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-21 18:10 JST** — README を全体に見直し(対象 GPU と OS の記述、オリジナルとの違いの表に最近の機能を追加、Easy Music の節を整理)。「実機の実測」の表(RTX 3060 12GB の入門機で 3 分 15 秒の曲を 1 分 15 秒、A4000 16GB で 40 秒前後)。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
-**16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
+**16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
 オリジナル(ace-step/ACE-Step-1.5、git remote `upstream`)の 2026-05-04 時点 `6c1b2ef` を土台にし、オリジナルの取り込みは予定していません。
 
 - 実測(A4000、XL-SFT、300 秒 1 曲、32 step、mp3・CoT あり、音は bf16 のまま): **84 秒 → 62〜65 秒**
 - サーバの常駐ホストメモリ 約 4GB(32GB の専用機で動く)
 - 評価用の Web UI(Gradio 不要)を API サーバが `/ui/` で配信
+- ワンクリックで曲を作る Web アプリ [Easy Music](#同梱アプリ-easy-musiceasy-music) を同梱(`easy-music/`、別プロセス、ポート 8888。歌詞・キャプションの LLM は外部が無ければ同梱の Gemma 4 E4B を GPU で使う)
 
 ## オリジナルとの違い
 
@@ -19,7 +20,10 @@
 | 拡散以外の削減 | `ACESTEP_RESIDENT_COMPONENTS`(VAE / テキストエンコーダを退避しない)、`ACESTEP_VAE_DECODE_CHUNK_SIZE`、`ACESTEP_MP3_COMPRESSION_LEVEL`(任意) |
 | API サーバの修正 | `ACESTEP_QUANTIZATION` を受け取る(オリジナルは量子化を渡さず常に bf16)。ローダは CPU で量子化してから GPU へ、compile は `decoder.forward` に当てる |
 | 同時実行 | LM(CoT)の呼び出しを直列化(オリジナルは同時実行で CUDA が壊れる)。別モデルへの切替は実行中のジョブを待ってから |
-| モデル管理 API | `GET /v1/residency`、`POST /v1/residency/activate`(事前切替)、`POST /v1/init` の排他常駐対応(slot の入れ替え) |
+| モデル管理 API | `GET /v1/residency`、`POST /v1/residency/activate`(事前切替)、`POST /v1/init` の排他常駐対応(slot の入れ替え)。VRAM に載らないモデルは `/v1/init` が読む前に断り、`/v1/models` に `vram_ok` を付ける |
+| プロファイルの自動選択 | 起動スクリプトが VRAM を見て `12gb`(14GB 未満)/ `16gb` を選ぶ。8GB は指定付き([必要 VRAM の目安](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)) |
+| 生成の中止 | `POST /v1/cancel`。待ち行列中は即、生成中は今のステップの後で止まる。`/release_task` に任意の `task_id` |
+| Windows 対応 | `setup.bat` / `run_api_server_fast.bat` / `run_easy_music.bat`。Windows 10 / 11 の実機で確認済み |
 | Web UI | `webui/`(HTML + JS)。生成・cover・repaint・簡易モード・LM 設定・結果の再生と履歴・モデル管理 |
 | 同梱アプリ | `easy-music/`: ワンクリック生成の Web アプリ Easy Music(別プロセス、`./run_easy_music.sh`) |
 | 実装済みだが既定 OFF | `ACESTEP_DIT_FUSIONS`(attention / MLP / adaLN の eager 融合、効果 ≤3%)、`ACESTEP_QUANTIZATION=int8_plain` |
@@ -81,17 +85,11 @@ cd ACE-Step-1.5-fast
 ```
 
 - ブラウザで `http://localhost:8001/ui/`(評価用 UI)または `http://localhost:8888`(Web アプリ)を開く。Web アプリのポートは引数で変えられる(例: `.\run_easy_music.bat 8890`)。停止は `.\close_api_server.bat`。
-- 歌詞生成の LLM(OpenAI 互換 API。既定は `http://localhost:11434/v1` = Ollama、無ければ同梱の GGUF = Gemma 4 E4B Q4_0 にフォールバック。同梱 LLM は llama.cpp のビルド済み `llama-server` を初回に自動取得するのでコンパイラ不要で、NVIDIA GPU があれば CUDA 版を取って GPU で動く)を指定するには、起動引数か `easy-music\.env` を使う:
-
-```bat
-.\run_easy_music.bat 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
-```
-
-`easy-music\.env` に書く場合は `OPENAI_BASE_URL=http://LLM_HOST:11434/v1`、`OPENAI_API_KEY=YOUR_KEY`、`OPENAI_CHAT_MODEL=gemma3:latest`(起動引数が優先)。ACE サーバは `--ace-url`、背景画像サーバは `--img-url` で同様に指定できる。
+- 歌詞を作る LLM は、外部の LLM サーバが無ければ同梱の Gemma 4 E4B を自動で取ってきて GPU で使う。指定の仕方は[同梱アプリ: Easy Music](#同梱アプリ-easy-musiceasy-music)。
 - `setup.bat` が uv の導入(winget、無ければ公式インストーラ)→ `.venv` の作成 → GPU 確認 → モデル取得(約 45GB)を行う。途中で止まっても再実行すれば続きから。直後に `uv` が見つからないと言われたら、新しいウィンドウで `.\setup.bat` をもう一度。
 - Git を入れたくない場合は、1〜2 行目の代わりに GitHub の「Code → Download ZIP」を展開してそのフォルダで続ける。
 - 設定の上書きは起動前に `set ACESTEP_GPU_PROFILE=large`(PowerShell は `$env:ACESTEP_GPU_PROFILE = "large"`)のように指定。
-- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て自動で `12gb` を選ぶ)。**8GB は次の 5 つを最初から全部入れて起動**する。付けずに起動すると VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなる。
+- Windows 実機で動作を確認済み(RTX 3060 12GB の入門機と RTX 4060 Laptop 8GB のノート PC。数字は[実機の実測](#実機の実測))。12GB 以上は何も付けずに起動すればよい(VRAM を見て、12GB 級なら `12gb`、16GB 以上なら `16gb` を選ぶ)。**8GB は次の 5 つを最初から全部入れて起動**する。付けずに起動すると VRAM があふれて共有 GPU メモリに退避し、エラーにはならないまま極端に遅くなる。
 
 ```powershell
 $env:ACESTEP_GPU_PROFILE = "12gb"
@@ -102,7 +100,7 @@ $env:ACESTEP_QUANTIZATION = "int8_weight_only"
 .\run_api_server_fast.bat
 ```
 
-- 問題があれば Issue で報告してください(同じ作りの [minimax-h3](https://github.com/animede/Diffusers_minimax-h3) の Windows 実機で見つかった問題、HF キャッシュの symlink 競合・winget のソース指定・バッチの改行コード・`python -c` の引用符は、こちらにも反映済み)。
+- 問題があれば Issue で報告してください。
 
 ## 起動
 
@@ -129,14 +127,18 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 
 ## 使い方
 
-- **Web UI**: サーバ起動後に `http://<host>:<port>/ui/` を開く。モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint、簡易モード(説明から LM が曲を考える)、LM の設定、結果の再生と履歴(seed の再利用)、サーバのモデル管理(GPU 上のモデルの確認・事前切替・slot の入れ替え)。
-- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)になり、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` でスロットに読み込む(数十秒)。VRAM に載らないモデル(12GB 未満への XL など)は `/v1/init` が `VRAM too small` で断る。`GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。 `/release_task` には任意で `task_id`(UUID)を付けられ、投入の応答を受け取れなかったときもその ID で中止できる(同じ ID は 409)。 `POST /v1/cancel {"task_id": ...}` で中止(待ち行列中は即、生成中は今のステップの後で止まり、結果は status 2・error `cancelled by client`)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
+- **Web UI**: サーバ起動後に `http://<host>:<port>/ui/` を開く。モデル選択(サーバに読み込んだ DiT から。`16gb` なら xl-sft / xl-turbo / 2B turbo、`12gb` なら 2B turbo / 2B base)、通常生成・cover・repaint、簡易モード(説明から LM が曲を考える)、LM の設定、結果の再生と履歴(seed の再利用)、サーバのモデル管理(GPU 上のモデルの確認・事前切替・slot の入れ替え)。
+- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
+  - リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)で、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` で読み込む(数十秒)。
+  - `GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。VRAM に載らないモデル(12GB 級への XL など)は `/v1/init` が `VRAM too small` で断る。
+  - 中止は `POST /v1/cancel {"task_id": ...}`。結果は status 2、error `cancelled by client`。`/release_task` に任意で `task_id`(UUID)を付けると、投入の応答を受け取れなかったときもその ID で中止できる(同じ ID は 409)。
 - **学習(LoRA / LoKr)**: API の `/train` 系ルートと `acestep/training_v2`。手順は [docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(オリジナルのまま。コマンドライン版 `train.py` は削除済み)。
 
 ## 外部アプリからの利用(API 互換性)
 
 このサーバは「音楽生成 API」としてオリジナルの ACE-Step 1.5 と同じ契約で使えます。`/release_task` → `/query_result` → `/v1/audio` の流れ、`/format_input`、`/create_random_sample`、`/v1/models`、`/health`、`/v1/stats`、`/v1/init` のリクエスト・レスポンスの形は変えていません。
-追加した `GET /v1/residency` と `POST /v1/residency/activate`(GPU 上のモデルの確認と事前切替)、外した `/v1/chat/completions`(OpenRouter 向け)、`model` と `seed` の注意点は [docs/ja/API.md の 12 節](docs/ja/API.md#12-このフォークace-step-15-fastでの追加と互換性) にまとめています。
+追加した `GET /v1/residency` と `POST /v1/residency/activate`(GPU 上のモデルの確認と事前切替)、`POST /v1/cancel`(中止)、外した `/v1/chat/completions`(OpenRouter 向け)、`model` と `seed` の注意点は [docs/ja/API.md の 12 節](docs/ja/API.md#12-このフォークace-step-15-fastでの追加と互換性) にまとめています。
+動きを 1 つ変えています。読み込んでいないモデル名を `model` に指定したとき、オリジナルは黙って primary で生成しますが、このフォークはエラーを返します(思ったのと違うモデルで生成されないように)。
 この契約は単体テスト(`acestep/api/api_contract_test.py`)で守っています。
 
 ### 同梱アプリ: Easy Music(`easy-music/`)
@@ -145,44 +147,23 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 
 ![Easy Music の起動画面](easy-music/startupUI.png)
 
-**ACE サーバの準備待ち**: ACE サーバはモデルを読み込み終わるまで(初回は数分)接続を受け付けない。端末に `[API Server] READY / 準備完了` が出たら使える。Easy Music はそれまで生成ボタンを薄くして「ACE サーバの準備を待っています」を表示し、押しても生成しない。準備ができると自動で使えるようになり、モデル一覧も取り直す(以後も 30 秒ごとに確認)。
+起動はセットアップの手順どおり、API サーバのあとに `./run_easy_music.sh 8888`(Windows は `.\run_easy_music.bat 8888`)で、ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら別のポートを引数に。専用の環境(`easy-music/.venv`)は `setup.sh` / `setup.bat` が作ります。使い方の詳細は [easy-music/README.md](easy-music/README.md)。
 
-**投入の待ち時間**: Easy Music はタスクを投入して ACE サーバの受付を最長 120 秒待つ(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT` で変更)。超えたらサーバ側の生成も中止し、「もう一度生成を」と表示する(生成が始まった直後の ACE が一時的に応答できないことがあり、長く待つより出し直すほうが早い)。
+#### 歌詞・キャプションの LLM
 
-**中止ボタン**: 生成中だけ「⏹ 中止」が出る。フロントの待ちをやめるだけでなく、ACE サーバのジョブも `/v1/cancel` で止める(今のステップの後、数秒以内)。止めないとサーバは曲の最後まで GPU を使い続け、次の生成がそのぶん待たされる。
+- 外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)を使い、つながらなければ同梱の Gemma 4 E4B(GGUF Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)を使います。外部の既定は `http://localhost:11434/v1`(Ollama)。
+- 同梱 LLM の実体は llama.cpp のビルド済み `llama-server`(固定タグ b12475)で、初回に `easy-music/tools/llama/` へ自動で取ってきて子プロセスとして動かします(コンパイラ不要。`easy-music/scripts/fetch_llama_server.py` で事前取得も可)。既存のバイナリや GGUF を使うなら `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)。
+- **GPU で動かす**(`LOCAL_LLM_GPU=auto`、既定): NVIDIA GPU があれば CUDA 版の `llama-server`(本体 + cudart、0.6〜0.8GB)を取り、空き VRAM に入る層だけ GPU に載せます(llama.cpp の `--fit`。全部載ると約 3GB + KV)。ACE に生成を投げる直前に止めて VRAM を返し、ACE の生成が終わるまでは起こしません(曲名や背景画像のプロンプトはその後に作る)。`LOCAL_LLM_GPU=off` で CPU 版、`all` / 層数で固定。`LOCAL_LLM_STOP_BEFORE_ACE=0` で止めない(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+- **呼び出しは 1 回**: 簡単モードでテーマも歌詞も空のまま生成を押すと、テーマ・歌詞・キャプションを 1 回の呼び出しでまとめて作ります(`/api/song_plan`)。失敗したときはテーマ → 歌詞 → キャプションの 3 回に戻ります。
+- **疎通確認**: 起動時と 60 秒ごとに外部 LLM(`GET /v1/models`。生成はしない。指定モデルが一覧に無ければ使えない扱い)と画像サーバを確かめ、起動ログに `[起動確認] 外部 LLM: 接続不可(...)→ 同梱 LLM(Gemma 4 E4B)を使用` のように 1 行ずつ出します。使えない間は呼び出しのたびに試さず、つながれば次の確認で外部に戻ります。状態は `GET /api/services_status`。
 
-**モデルの選択(プルダウン)**: サーバの `checkpoints/` にある DiT が全部並ぶ。起動時にスロットへ読み込まれていないものは「(未読込・選ぶと切替)」と表示され、選んで生成を押すとその場で読み込んで切り替える(XL で数十秒〜1 分。primary 以外のスロットを使うので既定モデルはそのまま)。この GPU の VRAM に載らないモデル(12GB の 3060 で XL など)は「(このGPUには載らない)」で選べない。VRAM が 16GB 以上なら XL も 2B も全部選べる。前回選んだモデルはブラウザに覚えておき、Easy Music やブラウザを起動し直しても同じものを選ぶ(選べなくなっていればサーバの既定、それも載らなければ選べるものの先頭)。
-
-`./setup.sh` が専用の環境(`easy-music/.venv`)も作ります。
-
-ターミナル 1(API サーバ、起動したまま):
-
-```bash
-cd ACE-Step-1.5-fast
-./run_api_server_fast.sh
-```
-
-ターミナル 2(Web アプリ。サーバが起動してから。引数はポート):
-
-```bash
-cd ACE-Step-1.5-fast
-./run_easy_music.sh 8888
-```
-
-ブラウザで `http://localhost:8888` を開きます。8888 が使用中なら `./run_easy_music.sh 8890`。
-
-- 歌詞生成の LLM は外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)。接続できないときは同梱の GGUF(Gemma 4 E4B Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)にフォールバックします。同梱 LLM の実体は llama.cpp の GitHub Releases にあるビルド済み `llama-server`(固定タグ b12475)で、初回のフォールバック時に `easy-music/tools/llama/` へ自動取得して子プロセスとして起動します(コンパイラ不要。`easy-music/.venv/bin/python easy-music/scripts/fetch_llama_server.py` で事前取得も可、`--cpu` で CPU 版)。既存のバイナリや GGUF を使うなら環境変数 `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)で指定できます。
-- **同梱 LLM の GPU 実行**(`LOCAL_LLM_GPU=auto`、既定): nvidia-smi が見える x64 の Windows / Linux では CUDA 版の `llama-server`(本体 + cudart、合計 0.6〜0.8GB)を取り、llama.cpp の `--fit` で**空き VRAM に入る層だけ** GPU に載せます(全部載ると約 3GB + KV)。ACE サーバが `12gb` プロファイルで待機している 3060 12GB でも同居でき、CPU(i3-10105)で 1 分 20 秒かかっていた歌詞が十数秒になります。ACE に生成を投げる直前に `llama-server` を止めて VRAM を返し(拡散のピーク 8.5GB のため)、ACE のタスクが終わる(`/api/status` が完了を返す)までは LLM の呼び出し(背景画像のプロンプト、曲名など)があっても GPU で起こさず待たせます。終わったあと次に LLM が要るときに起こし直します(ページキャッシュから数秒)。`LOCAL_LLM_GPU=off` で従来の CPU 版、`all` / 層数で固定、`LOCAL_LLM_STOP_BEFORE_ACE=0` で停止を無効(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
-- **起動時の疎通確認**: Easy Music は起動時と 60 秒ごとに、外部 LLM(`GET /v1/models`、生成はしない。指定モデルが一覧に無ければ不可扱い)と画像サーバを確認し、起動ログに `[起動確認] 外部 LLM: 接続不可(...)→ 同梱 LLM(Gemma 4 E4B)を使用`、`[起動確認] 画像サーバ: 応答なし(...)→ 背景画像は作らない` のように結論を 1 行ずつ出します。外部 LLM がつながらない間は呼び出しのたびに試さず(以前はリトライ込みで 1 回 1〜15 秒待ち、毎回警告)、最初から同梱 LLM を使い、つながれば次の確認で外部に戻ります。画像サーバが無い間は背景画像を頼まず、LLM に画像プロンプトを書かせることもしません(以前は毎曲 LLM を呼び、止めた同梱 LLM を起こしてから失敗していた)。状態は `GET /api/services_status`。
-- **LLM 呼び出しを 1 回に**: 簡単モードでテーマも歌詞も空のまま生成を押すと、テーマ・歌詞・キャプションを 1 回の LLM 呼び出しでまとめて作ります(`/api/song_plan`)。3 回に分けると CPU 推論では毎回の入力の読み込み(20〜30 秒)が支配的になるためで、同じ文脈で書くので歌詞とキャプションの整合も良くなります。失敗したときは従来のテーマ → 歌詞 → キャプションの 3 段階に戻ります。テーマだけ・歌詞だけの作り直しボタンは従来どおりです。
-
-**LLM の指定方法**(起動引数 > `easy-music/.env` > 既定値 `http://localhost:11434/v1` の順に優先):
+指定は 起動引数 > `easy-music/.env` > 既定値 の順に優先します。
 
 ```bash
 ./run_easy_music.sh 8888 --llm-url http://LLM_HOST:11434/v1 --llm-model gemma3:latest
 ```
 
-ホストとポートを分けるなら `--llm-host LLM_HOST --llm-port 11434`。恒久的に設定するなら `easy-music/.env` に次を書きます(認証不要のサーバなら `OPENAI_API_KEY` はダミーのまま)。
+ホストとポートを分けるなら `--llm-host LLM_HOST --llm-port 11434`。`easy-music/.env` に書くなら次の 3 行です(認証不要のサーバなら `OPENAI_API_KEY` はダミーのまま)。
 
 ```
 OPENAI_BASE_URL=http://LLM_HOST:11434/v1
@@ -190,9 +171,20 @@ OPENAI_API_KEY=YOUR_KEY
 OPENAI_CHAT_MODEL=gemma3:latest
 ```
 
-同じ要領で、ACE サーバは `--ace-url` / `ACE_STEP_API_URL`、背景画像サーバは `--img-url` / `IMAGE_GENERATION_URL` で指定できます。Windows は `run_easy_music.bat 8888 --llm-url ...`。
-- 背景画像は任意で、`IMAGE_GENERATION_URL` に画像生成サーバを指定したときだけ使われます(無ければ曲の生成はそのまま動きます)。
-- 使い方の詳細は [easy-music/README.md](easy-music/README.md)。同梱版は開発元の main を `git subtree` で取り込んだもので、`git subtree pull --prefix=easy-music https://github.com/animede/easy_music.git main` で追従できます。
+ACE サーバは `--ace-url` / `ACE_STEP_API_URL`、背景画像サーバは `--img-url` / `IMAGE_GENERATION_URL` で同じように指定できます。Windows は `.\run_easy_music.bat 8888 --llm-url ...`。
+
+#### 背景画像
+
+再生画面の背景画像は任意です。`IMAGE_GENERATION_URL` の画像生成サーバに届くときだけ作り、届かなければ画像のプロンプト作りごと飛ばします(曲の生成はそのまま動きます)。
+
+#### 生成の流れと待ち時間
+
+- **ACE サーバの準備待ち**: ACE サーバはモデルを読み込み終わるまで(初回は数分)接続を受け付けません。端末に `[API Server] READY / 準備完了` が出たら使えます。Easy Music はそれまで生成ボタンを薄くして「ACE サーバの準備を待っています」を出し、押しても生成しません。準備ができると自動で使えるようになり、モデル一覧も取り直します(以後も 30 秒ごとに確認)。
+- **投入の待ち時間**: タスクを投入して ACE サーバの受付を最長 120 秒待ちます(`easy-music/.env` の `ACE_SUBMIT_TIMEOUT`)。超えたらサーバ側の生成も中止して「もう一度生成を」と出します。
+- **中止ボタン**: 生成中だけ「⏹ 中止」が出ます。フロントの待ちをやめるだけでなく、ACE サーバの生成も `/v1/cancel` で止めます(今のステップの後、数秒以内)。
+- **モデルの選択**: プルダウンにはサーバの `checkpoints/` にある DiT が全部並びます。読み込まれていないものは「(未読込・選ぶと切替)」で、選んで生成を押すとその場で読み込みます(XL で数十秒〜1 分。primary 以外のスロットを使うので既定モデルはそのまま)。この GPU に載らないもの(12GB 級で XL など)は「(このGPUには載らない)」で選べません。前回選んだモデルはブラウザに覚えておき、起動し直しても同じものを選びます。
+
+同梱版は開発元の main を `git subtree` で取り込んだもので、`git subtree pull --prefix=easy-music https://github.com/animede/easy_music.git main` で追従できます。
 
 ## モデル
 
@@ -211,13 +203,13 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
 
 | プロファイル | GPU に載るもの | 起動直後 | 生成中のピーク | ホスト側 |
 |---|---|---|---|---|
-| `16gb`(既定) | DiT 1 本(既定 xl-sft)+ VAE + LM 0.6B。TE は要求時だけ GPU へ(同時実行 2 以上では常駐、+1.2GB) | 約 10GB | XL-sft 300 秒 1 本で約 13.6GB、2B turbo 60 秒で約 12GB | サーバ常駐 約 4GB。退避中の DiT は `.cache/acestep/dit_residency/` の bf16 ファイル(XL 10GB、2B 4.8GB、初回起動時に作成、合計約 25GB のディスク)をページキャッシュ経由で読むので、RAM はその分あると切替が約 2 秒、無ければ NVMe から約 7 秒 |
-| `12gb` | 2B turbo(常駐)+ 2B base(要求時に入れ替え)+ VAE + LM 0.6B。XL は読まない | 約 8GB | 2B turbo / base とも 60〜300 秒で約 8.5GB(A4000 で実測、12GB に約 3.5GB の余裕) | 16gb と同じ(退避ファイルは 2B 2 本で約 10GB) |
-| `large` | 3 本の DiT 全部 + VAE + TE + LM 4B、退避なし | 約 35GB(重みの合計からの見込み) | 生成分(300 秒 1 本で 3〜4GB、同時実行数ぶん)が上乗せ。40GB 以上、同時実行 2〜4 なら 48GB 級 | サーバ常駐 約 4GB |
+| `16gb`(14GB 以上で自動) | DiT 1 本(既定 xl-sft)+ VAE + LM 0.6B。TE は要求時だけ GPU へ(同時実行 2 以上では常駐、+1.2GB) | 約 10GB | XL-sft 300 秒 1 本で約 13.6GB、2B turbo 60 秒で約 12GB | サーバ常駐 約 4GB。退避中の DiT は `.cache/acestep/dit_residency/` の bf16 ファイル(XL 10GB、2B 4.8GB、初回起動時に作成、合計約 25GB のディスク)をページキャッシュ経由で読むので、RAM はその分あると切替が約 2 秒、無ければ NVMe から約 7 秒 |
+| `12gb`(14GB 未満で自動) | 2B turbo(常駐)+ 2B base(要求時に入れ替え)+ VAE + LM 0.6B。XL は読まない | 約 8GB | 2B turbo / base とも 60〜300 秒で約 8.5GB(A4000 で実測、12GB に約 3.5GB の余裕) | 16gb と同じ(退避ファイルは 2B 2 本で約 10GB) |
+| `large`(指定したときだけ) | 3 本の DiT 全部 + VAE + TE + LM 4B、退避なし | 約 35GB(重みの合計からの見込み) | 生成分(300 秒 1 本で 3〜4GB、同時実行数ぶん)が上乗せ。40GB 以上、同時実行 2〜4 なら 48GB 級 | サーバ常駐 約 4GB |
 
 - 16GB では XL-sft の 300 秒は 1 並列まで(`ACESTEP_QUEUE_WORKERS=1`、既定)。2B turbo なら 2 並列も入る。
 - 16GB で 600 秒(10 分)の曲を作るときは、VRAM の見積もりが先に拒否するか OOM になることがある。長い曲は `large` か、`ACESTEP_VAE_DECODE_CHUNK_SIZE=128` で decode のピークを下げる。
-- 12GB の GPU は `12gb` プロファイル(2B のみ)。XL は bf16 の重みだけで 10GB あるので載らない。
+- 12GB の GPU は `12gb` プロファイル(2B のみ、自動で選ばれる)。XL は bf16 の重みだけで 10GB あるので載らない。
 - **8GB で動かす場合(RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)の Windows 11 ノート PC で確認済み)**: `12gb` の 8.6GB の内訳は 2B turbo 4.8GB + LM 0.6B 1.3GB + VAE 0.3GB + テキストエンコーダ 1.2GB(要求時のみ)+ 作業領域 約 1GB。8GB カードは表示用に 0.5〜1GB 取られるので、次の 5 つを**最初から全部**指定する(int8 抜きだと 6.5〜7.3GB の見積もりでも実機では足りず、Windows では VRAM があふれても OOM にならずに共有 GPU メモリへ退避して、極端に遅くなってフロントがタイムアウトする)。生成時間は下の[実機の実測](#実機の実測)。
 
   ```bash
@@ -232,7 +224,6 @@ DiT 以外: LM(CoT / thinking)`acestep-5Hz-lm-0.6B` 1.3GB / `1.7B` 3.5GB / `4B` 
   - `ACESTEP_QUANTIZATION=int8_weight_only`: 2B の重みを 4.8 → 2.4GB に。8GB ではこれが無いと足りない。速くはならず、音は bf16 と少し変わる。
   - RAM 16GB では Easy Music のローカル LLM(Gemma 4 E4B、約 4.4GB)と ACE サーバ(常駐約 4GB)が同居してぎりぎりなので、他の大きなアプリは閉じておく。
   - 8GB でも同梱 LLM の GPU 実行(`LOCAL_LLM_GPU=auto`)は使える: `--fit` が空き VRAM に入る層だけ載せ、ACE に投げる直前に止める。CPU の弱い機械ほど効く。
-
 
 ### 実機の実測
 
@@ -261,7 +252,7 @@ Easy Music の簡単モード(ジャンルを選んで生成、テーマ・歌�
 このフォークは、ACE Studio と StepFun が共同で開発・公開した [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) の成果の上に成り立っています。
 モデル(2B / XL の DiT、5Hz LM、VAE)、学習・推論のコード、API サーバの設計はすべてオリジナルのものです。
 Junmin Gong、Yulin Song、Wenxiao Zhao、Sen Wang、Shengyuan Xu、Jing Guo をはじめとする ACE-Step チームと、
-オープンソースで公開してくださったことに深く感謝します。ここで行ったのは 16GB 級 GPU 向けの最適化と運用面の整理であり、
+オープンソースで公開してくださったことに深く感謝します。ここで行ったのは 16GB 級をはじめ 12GB / 8GB の GPU 向けの最適化と運用面の整理であり、
 音楽生成の品質はオリジナルの研究によるものです。
 
 ## ライセンスと引用

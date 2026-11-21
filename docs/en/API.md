@@ -896,7 +896,13 @@ keep their request and response shapes. Reference application: the bundled Easy 
 ### 12.1 Unchanged
 
 - Authentication (`ACESTEP_API_KEY`), the response envelope (`data` / `code` / `error` / `timestamp`), task statuses (0 / 1 / 2), result fields (`file`, `dit_model`, `lm_model`, `seed_value`, `metas`, `generation_info`, ...).
-- Omitting `model` uses the primary (`acestep-v15-xl-sft` with `run_api_server_fast.sh`); a model name that is not loaded fails the task with `Model '...' is not loaded on this server (loaded: ...)` instead of silently using the primary; load it first with `POST /v1/init`. Each entry of `GET /v1/models` carries `is_loaded`, `vram_ok` and `min_vram_gb` (whether this GPU can hold it).
+- Omitting `model` uses the primary (with `run_api_server_fast.sh`: `acestep-v15-xl-sft` in the `16gb` profile, `acestep-v15-turbo` in the `12gb` profile).
+
+### 12.1.1 Changed
+
+- A `model` name that is not loaded fails the task with `Model '...' is not loaded on this server (loaded: ...)`. The original silently generates with the primary; this fork refuses so a request never runs on a model the client did not ask for. Load it first with `POST /v1/init`.
+- `POST /v1/init` refuses a model that cannot fit this GPU (XL on < 14 GB, for example) with `VRAM too small` (400) before reading any weights.
+- Each entry of `GET /v1/models` gains `is_loaded`, `vram_ok` and `min_vram_gb` (existing fields unchanged).
 
 ### 12.2 Added
 
@@ -905,6 +911,8 @@ keep their request and response shapes. Reference application: the bundled Easy 
 | `GET /v1/residency` | With exclusive residency: which DiT is on the GPU and the state of each slot (`{"mode","store","active","slots":[{"slot","model","loaded","on_gpu"}]}`) |
 | `POST /v1/residency/activate` `{"model"}` or `{"slot"}` | Move that DiT onto the GPU ahead of time (waits for in-flight jobs); 400 on shared-residency servers |
 | `POST /v1/init {"model","slot"}` | As in the original; with exclusive residency a slot that is not on the GPU is loaded on the CPU and parked, so slots can be swapped while another model keeps serving |
+| `POST /v1/cancel {"task_id"}` | Cancel a generation: a queued task at once, a running one after the current step. See 5.5 |
+| `task_id` on `/release_task` (optional, UUID) | Create the task under a client-chosen ID, so a client that never got the submit response can still cancel or query it (duplicate 409, not a UUID 400) |
 
 Behavioural note: per-request `model` switching costs about 2 s of model swap under exclusive residency (none when consecutive requests use the same model).
 

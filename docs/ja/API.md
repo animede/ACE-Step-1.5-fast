@@ -772,7 +772,13 @@ APIサーバーは環境変数で設定できます：
 ### 12.1 変わらないこと
 
 - 認証(`ACESTEP_API_KEY`)、レスポンスの包み(`data` / `code` / `error` / `timestamp`)、タスクのステータス(0 / 1 / 2)、結果 JSON の各フィールド(`file`、`dit_model`、`lm_model`、`seed_value`、`metas`、`generation_info` …)。
-- `model` を省略した場合は primary(`run_api_server_fast.sh` では `acestep-v15-xl-sft`)。読み込まれていないモデル名を指定した場合はタスクが失敗し、`Model '...' is not loaded on this server (loaded: ...)` が error に入る(黙って primary には置き換えない)。先に `POST /v1/init` で読み込む。`GET /v1/models` の各モデルの `is_loaded` / `vram_ok` / `min_vram_gb` で、読み込み済みか、この GPU に載るかが分かる。
+- `model` を省略した場合は primary(`run_api_server_fast.sh` では `16gb` プロファイルが `acestep-v15-xl-sft`、`12gb` プロファイルが `acestep-v15-turbo`)。
+
+### 12.1.1 変えたこと
+
+- 読み込まれていないモデル名を `model` に指定すると、タスクが失敗して `Model '...' is not loaded on this server (loaded: ...)` が error に入る。オリジナルは黙って primary で生成するが、思ったのと違うモデルで生成されないように変えた。先に `POST /v1/init` で読み込む。
+- `POST /v1/init` は、この GPU の VRAM に載らないモデル(14GB 未満への XL など)を重みを読む前に `VRAM too small` で断る(400)。
+- `GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` を足した(既存のフィールドはそのまま)。
 
 ### 12.2 追加したもの
 
@@ -781,6 +787,8 @@ APIサーバーは環境変数で設定できます：
 | `GET /v1/residency` | 排他常駐のとき、どの DiT が GPU 上かと各 slot の状態(`{"mode","store","active","slots":[{"slot","model","loaded","on_gpu"}]}`) |
 | `POST /v1/residency/activate` `{"model"}` または `{"slot"}` | 指定の DiT を事前に GPU へ(実行中のジョブを待ってから切替)。共有常駐のサーバでは 400 |
 | `POST /v1/init {"model","slot"}` | オリジナルと同じ。排他常駐では GPU 上でない slot を CPU に読み込んで退避するので、他のモデルを使いながら slot を入れ替えられる |
+| `POST /v1/cancel {"task_id"}` | 生成の中止。待ち行列中は即、生成中は今のステップの後で止まる。詳細は 5.5 |
+| `/release_task` の `task_id`(任意、UUID) | クライアントが決めた ID でタスクを作る。投入の応答を受け取れなくても、その ID で中止・照会できる(重複 409、UUID でなければ 400) |
 
 生成の挙動に関わる追加: `model` によるリクエスト単位の切替が、排他常駐では約 2 秒のモデル入れ替えを伴う(連続して同じモデルを使えば発生しない)。
 
