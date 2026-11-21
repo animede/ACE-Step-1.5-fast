@@ -7,7 +7,7 @@ import re
 from typing import Optional
 
 
-STATUS_MAP = {"queued": 0, "running": 0, "succeeded": 1, "failed": 2}
+STATUS_MAP = {"queued": 0, "running": 0, "succeeded": 1, "failed": 2, "cancelled": 2}
 
 
 def parse_description_hints(description: str) -> tuple[Optional[str], bool]:

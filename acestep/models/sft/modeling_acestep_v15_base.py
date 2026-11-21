@@ -17,6 +17,8 @@ import time
 from typing import Callable, List, Optional, Union
 
 import torch
+
+from acestep.cancel import check as _check_cancel
 import torch.nn.functional as F
 from torch import nn
 
@@ -2024,6 +2026,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         _switched_to_non_cover = False
         with torch.no_grad():
             for step_idx, (t_curr, t_prev) in enumerate(iterator):
+                _check_cancel()  # POST /v1/cancel: stop after this step instead of running to the end
                 if step_idx >= cover_steps and not _switched_to_non_cover:
                     _switched_to_non_cover = True
                     if do_cfg_guidance:

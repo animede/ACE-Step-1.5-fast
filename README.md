@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-20 22:05 JST** — 同梱 LLM の GPU 実行を修正: 生成タスクを作った直後の背景画像プロンプト生成が止めたはずの llama-server を GPU で起こし直し、ACE の拡散と VRAM を取り合って生成エラーになっていた。ACE の生成中は LLM の起動を待たせる。モデル一覧が取れないときのプルダウンは XL 名ではなく「サーバの既定」を送る。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-21 11:10 JST** — 生成の中止を追加: `POST /v1/cancel` でサーバ側のジョブを止める(待ち行列中は即、生成中は今のステップの後)。Easy Music に生成中だけ出る「中止」ボタン。Easy Music は前回選んだモデルを覚える(再起動で既定の XL-SFT に戻らない)。待ち時間を 5 分 → 15 分に。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**で、Linux / CUDA に絞っています。
@@ -130,7 +130,7 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 ## 使い方
 
 - **Web UI**: サーバ起動後に `http://<host>:<port>/ui/` を開く。モデル選択(xl-sft / xl-turbo / 2B turbo)、通常生成・cover・repaint、簡易モード(説明から LM が曲を考える)、LM の設定、結果の再生と履歴(seed の再利用)、サーバのモデル管理(GPU 上のモデルの確認・事前切替・slot の入れ替え)。
-- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)になり、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` でスロットに読み込む(数十秒)。VRAM に載らないモデル(12GB 未満への XL など)は `/v1/init` が `VRAM too small` で断る。`GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
+- **REST API**: `POST /release_task` → `POST /query_result` → `GET /v1/audio`。リクエストの `model` でロード済みの DiT を選ぶ。読み込んでいないモデル名はエラー(`Model '...' is not loaded on this server`)になり、黙って primary には置き換えない。先に `POST /v1/init {"model": ..., "slot": 2}` でスロットに読み込む(数十秒)。VRAM に載らないモデル(12GB 未満への XL など)は `/v1/init` が `VRAM too small` で断る。`GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` が付く。 `POST /v1/cancel {"task_id": ...}` で中止(待ち行列中は即、生成中は今のステップの後で止まり、結果は status 2・error `cancelled by client`)。仕様は [docs/ja/API.md](docs/ja/API.md) / [docs/en/API.md](docs/en/API.md)。
 - **学習(LoRA / LoKr)**: API の `/train` 系ルートと `acestep/training_v2`。手順は [docs/ja/LoRA_Training_Tutorial.md](docs/ja/LoRA_Training_Tutorial.md)(オリジナルのまま。コマンドライン版 `train.py` は削除済み)。
 
 ## 外部アプリからの利用(API 互換性)
@@ -145,7 +145,9 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 
 ![Easy Music の起動画面](easy-music/startupUI.png)
 
-**モデルの選択(プルダウン)**: サーバの `checkpoints/` にある DiT が全部並ぶ。起動時にスロットへ読み込まれていないものは「(未読込・選ぶと切替)」と表示され、選んで生成を押すとその場で読み込んで切り替える(XL で数十秒〜1 分。primary 以外のスロットを使うので既定モデルはそのまま)。この GPU の VRAM に載らないモデル(12GB の 3060 で XL など)は「(このGPUには載らない)」で選べない。VRAM が 16GB 以上なら XL も 2B も全部選べる。
+**中止ボタン**: 生成中だけ「⏹ 中止」が出る。フロントの待ちをやめるだけでなく、ACE サーバのジョブも `/v1/cancel` で止める(今のステップの後、数秒以内)。止めないとサーバは曲の最後まで GPU を使い続け、次の生成がそのぶん待たされる。
+
+**モデルの選択(プルダウン)**: サーバの `checkpoints/` にある DiT が全部並ぶ。起動時にスロットへ読み込まれていないものは「(未読込・選ぶと切替)」と表示され、選んで生成を押すとその場で読み込んで切り替える(XL で数十秒〜1 分。primary 以外のスロットを使うので既定モデルはそのまま)。この GPU の VRAM に載らないモデル(12GB の 3060 で XL など)は「(このGPUには載らない)」で選べない。VRAM が 16GB 以上なら XL も 2B も全部選べる。前回選んだモデルはブラウザに覚えておき、Easy Music やブラウザを起動し直しても同じものを選ぶ(選べなくなっていればサーバの既定、それも載らなければ選べるものの先頭)。
 
 `./setup.sh` が専用の環境(`easy-music/.venv`)も作ります。
 

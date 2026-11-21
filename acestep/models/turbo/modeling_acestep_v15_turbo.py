@@ -17,6 +17,8 @@ import time
 from typing import Callable, List, Optional, Union
 
 import torch
+
+from acestep.cancel import check as _check_cancel
 import torch.nn.functional as F
 from torch import nn
 
@@ -2091,6 +2093,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         cover_steps = int(num_steps * audio_cover_strength)
         _switched_to_non_cover = False
         for step_idx in range(num_steps):
+            _check_cancel()  # POST /v1/cancel: stop after this step instead of running to the end
             current_timestep = t_schedule[step_idx].item()
             t_curr_tensor = current_timestep * torch.ones((bsz,), device=device, dtype=dtype)
             

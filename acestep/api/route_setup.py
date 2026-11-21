@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from acestep.api.http.audio_route import register_audio_route
+from acestep.api.http.cancel_route import register_cancel_route
 from acestep.api.http.lora_routes import register_lora_routes
 from acestep.api.http.model_service_routes import register_model_service_routes
 from acestep.api.http.residency_routes import register_residency_routes
@@ -129,6 +130,7 @@ def configure_api_routes(
     )
 
     register_audio_route(app=app, verify_api_key=verify_api_key)
+    register_cancel_route(app=app, verify_api_key=verify_api_key, wrap_response=wrap_response, store=store)
 
     register_release_task_route(
         app=app,

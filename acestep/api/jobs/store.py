@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import os
 import tempfile
 import time
@@ -12,7 +13,7 @@ from threading import Lock
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
-JobStatus = Literal["queued", "running", "succeeded", "failed"]
+JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 
 
 @dataclass
@@ -33,6 +34,7 @@ class _JobRecord:
     updated_at: Optional[float] = None
     done_event: Optional[asyncio.Event] = None
     progress_queue: Optional[asyncio.Queue] = None
+    cancel_event: Optional[threading.Event] = None   # set by /v1/cancel; the diffusion loop polls it each step
 
 
 def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
@@ -133,6 +135,56 @@ class _JobStore:
             record.stage = "succeeded"
             record.updated_at = time.time()
 
+    def request_cancel(self, job_id: str) -> Optional[str]:
+        """Ask a queued or running job to stop.
+
+        Returns the job's status after the request: ``"cancelled"`` when it was
+        still queued (the worker will skip it), ``"cancelling"`` when it is
+        running (the diffusion loop stops after the current step), the final
+        status when it had already finished, or ``None`` when unknown.
+        """
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None:
+                return None
+            if record.cancel_event is None:
+                record.cancel_event = threading.Event()
+            record.cancel_event.set()
+            if record.status == "queued":
+                self._mark_cancelled_locked(record)
+                return "cancelled"
+            if record.status == "running":
+                record.stage = "cancelling"
+                record.updated_at = time.time()
+                return "cancelling"
+            return record.status
+
+    def cancel_requested(self, job_id: str) -> bool:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            return bool(record and record.cancel_event is not None and record.cancel_event.is_set())
+
+    def cancel_event(self, job_id: str) -> threading.Event:
+        """The job's cancel event (created on demand) for binding to the generation thread."""
+        with self._lock:
+            record = self._jobs[job_id]
+            if record.cancel_event is None:
+                record.cancel_event = threading.Event()
+            return record.cancel_event
+
+    def _mark_cancelled_locked(self, record: _JobRecord) -> None:
+        record.status = "cancelled"
+        record.finished_at = time.time()
+        record.result = None
+        record.error = "cancelled by client"
+        record.stage = "cancelled"
+        record.updated_at = time.time()
+
+    def mark_cancelled(self, job_id: str) -> None:
+        """Mark a job as cancelled (reported to clients as status 2 with error 'cancelled by client')."""
+        with self._lock:
+            self._mark_cancelled_locked(self._jobs[job_id])
+
     def mark_failed(self, job_id: str, error: str) -> None:
         """Mark a job as failed and persist an error message."""
         with self._lock:
@@ -165,7 +217,7 @@ class _JobStore:
         with self._lock:
             to_remove = []
             for job_id, record in self._jobs.items():
-                if record.status in ("succeeded", "failed"):
+                if record.status in ("succeeded", "failed", "cancelled"):
                     finish_time = record.finished_at or record.created_at
                     if now - finish_time > max_age:
                         to_remove.append(job_id)
@@ -185,6 +237,7 @@ class _JobStore:
                 "running": 0,
                 "succeeded": 0,
                 "failed": 0,
+                "cancelled": 0,
             }
             for record in self._jobs.values():
                 if record.status in stats:

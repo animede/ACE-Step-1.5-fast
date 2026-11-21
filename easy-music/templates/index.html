@@ -433,6 +433,9 @@
                 <button class="generate-btn" id="simple-generate-btn" onclick="generateSimple()">
                     <span data-i18n="btn_generate">🎵 音楽を生成</span>
                 </button>
+                <button class="generate-btn cancel-btn" id="simple-cancel-btn" onclick="cancelGeneration()" style="display:none" data-i18n-title="btn_cancel_title" title="サーバ側の生成も止めます（今のステップの後で停止）">
+                    <span data-i18n="btn_cancel">⏹ 中止</span>
+                </button>
                 <div class="inline-player" id="inline-player">
                     <div class="track-buttons" id="track-buttons"></div>
                     <button class="playback-btn" id="play-pause-btn" onclick="togglePlayback(event)" data-i18n-title="title_play" title="再生">▶</button>

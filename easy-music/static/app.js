@@ -25,6 +25,10 @@ const I18N = {
         btn_debug_open: '音楽生成情報 ▲',
         btn_generate: '🎵 音楽を生成',
         btn_generating: '<span class="spinner"></span> 生成中...',
+        btn_cancel: '⏹ 中止',
+        btn_cancel_title: 'サーバ側の生成も止めます（今のステップの後で停止）',
+        status_cancelling: '⏹ 中止しています（サーバは今のステップの後で止まります）...',
+        status_cancelled: '⏹ 生成を中止しました',
         title_play: '再生',
         title_pause: '一時停止',
         title_download: 'ダウンロード',
@@ -73,7 +77,7 @@ const I18N = {
         status_fail_server: '生成に失敗しました（サーバーエラー）',
         status_fail_retry: '生成に失敗しました。しばらく待ってから再試行してください。',
         status_task_fail: 'タスク作成失敗',
-        status_timeout: 'タイムアウト',
+        status_timeout: 'タイムアウト（フロントの待ち時間 15 分を超えました。ACE サーバ側では生成が続いているか完走していることがあります。サーバのログを確認してください）',
         status_error: '❌ エラー: ',
         status_unknown: '不明なエラー',
         // Progress phases
@@ -208,6 +212,10 @@ const I18N = {
         btn_debug_open: 'Music Generation Info ▲',
         btn_generate: '🎵 Generate Music',
         btn_generating: '<span class="spinner"></span> Generating...',
+        btn_cancel: '⏹ Cancel',
+        btn_cancel_title: 'Also stops the server-side job (after the current step)',
+        status_cancelling: '⏹ Cancelling (the server stops after the current step)...',
+        status_cancelled: '⏹ Generation cancelled',
         title_play: 'Play',
         title_pause: 'Pause',
         title_download: 'Download',
@@ -269,7 +277,7 @@ const I18N = {
         status_fail_server: 'Generation failed (server error)',
         status_fail_retry: 'Generation failed. Please wait and try again.',
         status_task_fail: 'Task creation failed',
-        status_timeout: 'Timeout',
+        status_timeout: 'Timeout (the front end waited 15 minutes; the ACE server may still be generating or may have finished — check its log)',
         status_error: '❌ Error: ',
         status_unknown: 'Unknown error',
         phase_prep: 'Preparing...',
@@ -419,8 +427,9 @@ function refreshModelLabels() {
     Array.from(sel.options).forEach(opt => {
         if (!opt.value) return; // loading placeholder
         let label = getModelDisplayLabel(opt.value);
-        // 未ロードマーカーを保持
-        if (opt.textContent.endsWith(' ⏳')) label += ' ⏳';
+        // 未読込 / 載らない の印を今の言語で付け直す
+        if (opt.dataset.loaded === '0') label += ' ' + t('ace_model_not_loaded');
+        if (opt.disabled) label += ' ' + t('ace_model_no_vram');
         opt.textContent = label;
     });
 }
@@ -818,6 +827,23 @@ function getAceModel() {
     return val || null;
 }
 
+const ACE_MODEL_STORAGE_KEY = 'easymusic_ace_model';
+
+/** 前回選んだモデル名(ブラウザごと)。プライベートウィンドウ等で保存できなければ null */
+function loadSavedAceModel() {
+    try { return localStorage.getItem(ACE_MODEL_STORAGE_KEY) || null; } catch (_) { return null; }
+}
+
+function saveAceModel(name) {
+    try { if (name) localStorage.setItem(ACE_MODEL_STORAGE_KEY, name); } catch (_) { /* 保存できなくても動作は同じ */ }
+}
+
+/** モデルに合わせて STEP を切り替える(turbo 8、それ以外 50) */
+function syncStepsToModel(name) {
+    const stepsEl = document.getElementById('simple-steps');
+    if (stepsEl && name) stepsEl.value = isTurboModel(name) ? '8' : '50';
+}
+
 /**
  * 選択中のモデルがサーバのスロットに読み込まれていなければ、生成前に読み込んで切り替える。
  * サーバは読み込んでいないモデルの要求を(黙って既定に置き換えずに)エラーにするので、ここで先に載せる。
@@ -910,17 +936,20 @@ async function loadAvailableModels() {
             // サーバが VRAM に載らないと判定したモデルは選べない(/v1/models の vram_ok)
             if (m.vram_ok === false) { opt.disabled = true; label += ' ' + t('ace_model_no_vram'); }
             opt.textContent = label;
-            // デフォルトモデルまたはロード済みturboを選択
-            if (m.name === defaultModel || (m.is_default && sorted.indexOf(m) === 0)) {
-                opt.selected = true;
-            }
             sel.appendChild(opt);
         });
 
-        // デフォルト選択がなければ先頭を選択
-        if (!sel.value && sel.options.length > 0) {
-            sel.options[0].selected = true;
-        }
+        // 選択の優先順位: (1) 前回この画面で選んだモデル(ブラウザに保存、選べる場合のみ)
+        // (2) サーバの既定モデル(primary、選べる場合のみ) (3) 選べるものの先頭(読み込み済み・turbo が先)。
+        // 以前は (2) だけで、Easy Music を再起動すると手で選んだ TURBO が primary(16gb なら XL-SFT)に戻っていた。
+        const selectable = v => Array.from(sel.options).some(o => o.value === v && !o.disabled);
+        const saved = loadSavedAceModel();
+        const pick = (saved && selectable(saved)) ? saved
+                   : (defaultModel && selectable(defaultModel)) ? defaultModel
+                   : (Array.from(sel.options).find(o => !o.disabled) || {}).value;
+        if (pick) sel.value = pick;
+        if (pick && pick !== defaultModel) console.log('[EasyMusic] model selection:', pick, saved === pick ? '(remembered)' : '(server default not selectable)');
+        syncStepsToModel(sel.value);
 
         console.log('[EasyMusic] Models loaded:', sorted.map(m => m.name + (m.is_loaded !== false ? ' ✓' : '')).join(', '));
 
@@ -1071,7 +1100,7 @@ async function regenerateLyrics() {
         showSimpleStatus(t('status_lyrics_fail'), 'info');
     } finally {
         if (btn) {
-            btn.disabled = false;
+            btn.disabled = false; clearActiveGeneration();
             btn.innerHTML = originalText;
         }
     }
@@ -1158,7 +1187,7 @@ async function regenerateCaption() {
         showSimpleStatus(t('status_fail_retry'), 'error');
     } finally {
         originalTexts.forEach(({ btn, html }) => {
-            btn.disabled = false;
+            btn.disabled = false; clearActiveGeneration();
             btn.innerHTML = html;
         });
     }
@@ -1329,14 +1358,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const aceModelSelect = document.getElementById('simple-ace-model');
     if (aceModelSelect) {
         aceModelSelect.addEventListener('change', () => {
-            const stepsEl = document.getElementById('simple-steps');
-            if (stepsEl) {
-                if (isTurboModel(aceModelSelect.value)) {
-                    stepsEl.value = '8';
-                } else {
-                    stepsEl.value = '50';
-                }
-            }
+            syncStepsToModel(aceModelSelect.value);
+            saveAceModel(aceModelSelect.value);  // 次に Easy Music やブラウザを起動し直しても同じモデルを選ぶ
             // SFT選択時: バッチサイズを最大2に制限（VRAM安全対策）
             applyModelBatchRestriction();
         });
@@ -1531,7 +1554,7 @@ async function generateCover() {
         console.error('[EasyMusic] Cover generation failed:', e);
         showSimpleStatus('❌ Cover: ' + e.message, 'error');
     } finally {
-        btn.disabled = false;
+        btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = '<span data-i18n="btn_generate">' + t('btn_generate') + '</span>';
     }
 }
@@ -1611,7 +1634,7 @@ async function generateRepaint() {
         console.error('[EasyMusic] Repaint generation failed:', e);
         showSimpleStatus('❌ Repaint: ' + e.message, 'error');
     } finally {
-        btn.disabled = false;
+        btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = '<span data-i18n="btn_generate">' + t('btn_generate') + '</span>';
     }
 }
@@ -1619,11 +1642,56 @@ async function generateRepaint() {
 /**
  * 共通ポーリング処理
  */
+// =============================================================================
+// Cancel — フロントの待ちをやめるだけでなく、ACE サーバのジョブも /v1/cancel で止める
+// (止めないとサーバは曲の最後まで GPU を使い続け、次の生成がそのぶん待たされる)
+// =============================================================================
+let activeGenerationTaskId = null;
+let generationCancelRequested = false;
+
+function setActiveGeneration(taskId) {
+    activeGenerationTaskId = taskId;
+    generationCancelRequested = false;
+    const b = document.getElementById('simple-cancel-btn');
+    if (b) { b.style.display = ''; b.disabled = false; }
+}
+
+function clearActiveGeneration() {
+    activeGenerationTaskId = null;
+    const b = document.getElementById('simple-cancel-btn');
+    if (b) b.style.display = 'none';
+}
+
+async function cancelGeneration() {
+    const taskId = activeGenerationTaskId;
+    if (!taskId || generationCancelRequested) return;
+    generationCancelRequested = true;
+    const b = document.getElementById('simple-cancel-btn');
+    if (b) b.disabled = true;
+    showSimpleStatus(t('status_cancelling'), 'info');
+    try {
+        const r = await apiRequest('/api/cancel/' + taskId, 'POST');
+        console.log('[EasyMusic] cancel:', r);
+    } catch (e) {
+        console.warn('[EasyMusic] cancel request failed (the front end stops waiting anyway):', e.message || e);
+    }
+}
+
+/** ポーリング中に中止されたか。中止なら履歴を消して「中止しました」を出し true を返す */
+function handleCancelledPoll(taskId, statusResult) {
+    const serverSaysCancelled = statusResult && statusResult.status === 2 && /cancel/i.test(statusResult.error || '');
+    if (!generationCancelRequested && !serverSaysCancelled) return false;
+    removeHistoryEntry(taskId);
+    showSimpleStatus(t('status_cancelled'), 'info');
+    hideSimpleProgress();
+    return true;
+}
+
 async function pollTask(taskId, backgroundContext = null) {
     const expectedTime = 120; // Cover/Repaintは推定時間をデフォルト2分
     const startTime = Date.now();
     let pollCount = 0;
-    const maxPolls = 600;
+    const maxPolls = 900;  // 15 分
 
     if (backgroundContext) {
         generatePlaybackBackground({
@@ -1636,9 +1704,12 @@ async function pollTask(taskId, backgroundContext = null) {
         });
     }
 
+    setActiveGeneration(taskId);
+    try {
     while (pollCount < maxPolls) {
         await new Promise(r => setTimeout(r, 1000));
         pollCount++;
+        if (handleCancelledPoll(taskId, null)) return;
 
         const elapsed = (Date.now() - startTime) / 1000;
         const progress = smoothProgress(elapsed, expectedTime);
@@ -1648,6 +1719,7 @@ async function pollTask(taskId, backgroundContext = null) {
         try {
             statusResult = await apiRequest('/api/status/' + taskId);
         } catch (_) { continue; }
+        if (handleCancelledPoll(taskId, statusResult)) return;
 
         if (statusResult.status === 1) {
             showSimpleProgress(100);
@@ -1679,11 +1751,16 @@ async function pollTask(taskId, backgroundContext = null) {
                 showSimpleStatus(`✅ ${statusResult.results.length}${t('status_complete')}`, 'success');
             }
             return;
-        } else if (statusResult.status === -1) {
+        } else if (statusResult.status === 2 || statusResult.status === -1) {
+            removeHistoryEntry(taskId);
             throw new Error(statusResult.error || t('status_fail'));
         }
     }
-    throw new Error('Timeout');
+    removeHistoryEntry(taskId);
+    throw new Error(t('status_timeout'));
+    } finally {
+        clearActiveGeneration();
+    }
 }
 
 // =============================================================================
@@ -1767,11 +1844,13 @@ async function generateOmakase(query) {
         const expectedTime = estimateGenerationTime(params);
         const startTime = Date.now();
         let pollCount = 0;
-        const maxPolls = 600;
+        const maxPolls = 900;  // 15 分
 
+        setActiveGeneration(taskId);
         while (pollCount < maxPolls) {
             await new Promise(r => setTimeout(r, 1000));
             pollCount++;
+            if (handleCancelledPoll(taskId, null)) return;
 
             const elapsed = (Date.now() - startTime) / 1000;
             const progress = smoothProgress(elapsed, expectedTime);
@@ -1781,6 +1860,7 @@ async function generateOmakase(query) {
             try {
                 statusResult = await apiRequest('/api/status/' + taskId);
             } catch (_) { continue; }
+            if (handleCancelledPoll(taskId, statusResult)) return;
 
             if (statusResult.status === 1) {
                 // 成功
@@ -1828,7 +1908,7 @@ async function generateOmakase(query) {
     } catch (e) {
         showSimpleStatus('❌ ' + e.message, 'error');
     } finally {
-        btn.disabled = false;
+        btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = `<span data-i18n="btn_generate">${t('btn_generate')}</span>`;
     }
 }
@@ -2287,17 +2367,20 @@ async function generateSimple() {
         }
 
         const expectedTime = estimateGenerationTime(params);
-        const maxPolls = 300;
+        const maxPolls = 900;  // 15 分。3060 の初回(モデル読み込み込み)は 5 分を超えることがある
         let polls = 0;
 
+        setActiveGeneration(taskId);
         while (polls < maxPolls) {
             await sleep(1000);
             polls++;
+            if (handleCancelledPoll(taskId, null)) return;
 
             let statusResult;
             try {
                 statusResult = await apiRequest(`/api/status/${taskId}`);
             } catch (_) { continue; }
+            if (handleCancelledPoll(taskId, statusResult)) return;
 
             if (statusResult.status === 1) {
                 showSimpleProgress(100, currentUILang === 'ja' ? '完了！' : 'Done!');
@@ -2401,7 +2484,7 @@ async function generateSimple() {
         showSimpleStatus(t('status_error') + errMsg, 'error');
         hideSimpleProgress();
     } finally {
-        btn.disabled = false;
+        btn.disabled = false; clearActiveGeneration();
         btn.innerHTML = t('btn_generate');
     }
 }
@@ -3805,7 +3888,9 @@ async function loadModelInfo() {
     try {
         const result = await apiRequest('/api/models');
         if (result.success) {
-            const modelName = (result.default_model || '').toLowerCase();
+            // プルダウンで選ばれているモデル(前回の選択を復元済みのことがある)を優先し、無ければサーバの既定
+            const selected = document.getElementById('simple-ace-model')?.value || '';
+            const modelName = (selected || result.default_model || '').toLowerCase();
             const stepsEl = document.getElementById('simple-steps');
             if (modelName.includes('turbo')) {
                 window._simpleSteps = 8;
@@ -3961,7 +4046,7 @@ async function startJukebox() {
     // クリーンアップ
     jukeboxRunning = false;
     jukeboxGenerating = false;
-    btn.disabled = false;
+    btn.disabled = false; clearActiveGeneration();
     btn.textContent = t('jukebox_start');
     btn.classList.remove('stop');
     npEl.classList.remove('visible');
@@ -4155,7 +4240,7 @@ async function jukeboxGenerateOne() {
 
             const expectedTime = estimateGenerationTime(params);
             let polls = 0;
-            const maxPolls = 300;
+            const maxPolls = 900;  // 15 分。3060 の初回(モデル読み込み込み)は 5 分を超えることがある
 
             while (polls < maxPolls) {
                 if (jukeboxStopRequested) return null;

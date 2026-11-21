@@ -38,14 +38,14 @@ async def process_queue_item(
         if rec and rec.progress_queue:
             if rec.status == "succeeded" and rec.result:
                 await rec.progress_queue.put({"type": "result", "result": rec.result})
-            elif rec.status == "failed":
+            elif rec.status in ("failed", "cancelled"):
                 await rec.progress_queue.put({"type": "error", "content": rec.error or "Generation failed"})
             await rec.progress_queue.put({"type": "done"})
         if rec and rec.done_event:
             rec.done_event.set()
 
     except Exception as exc:
-        if rec and rec.status not in ("succeeded", "failed"):
+        if rec and rec.status not in ("succeeded", "failed", "cancelled"):
             store.mark_failed(job_id, str(exc))
         if rec and rec.progress_queue:
             await rec.progress_queue.put({"type": "error", "content": str(exc)})

@@ -418,6 +418,19 @@ class AceStepClient:
             response.raise_for_status()
             return response.json()
 
+    async def cancel_task(self, task_id: str) -> Dict[str, Any]:
+        """生成タスクの中止(/v1/cancel)。待ち行列中なら即、生成中なら今のステップの後で止まる。"""
+        async with await self._get_async_client() as client:
+            response = await client.post(
+                f"{self.base_url}/v1/cancel",
+                headers=self._build_headers(),
+                json={"task_id": task_id},
+            )
+            try:
+                return response.json()
+            except ValueError:
+                return {"code": response.status_code, "error": response.text}
+
     async def get_residency(self) -> Dict[str, Any]:
         """DiT スロット(1〜3)の中身と GPU 上にあるものを取得"""
         async with await self._get_async_client() as client:

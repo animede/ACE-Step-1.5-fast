@@ -424,6 +424,19 @@ curl -X POST http://localhost:8001/query_result \
 
 ---
 
+### 5.5 タスクの中止
+
+**POST** `/v1/cancel`(認証は他の `/v1/*` と同じ)
+
+```json
+{"task_id": "<release_task が返した task_id>"}
+```
+
+- 待ち行列中のタスクは即「cancelled」になり、ワーカーが飛ばす。
+- 生成中のタスクは拡散ループが各ステップで中止要求を見て、**今のステップの後**で止まる(数秒以内)。GPU はすぐ次のタスクに回る。
+- `/query_result` では `status: 2`、`error: "cancelled by client"` として返る。
+- 応答: `{"task_id": ..., "status": "cancelled" | "cancelling" | "succeeded" | "failed"}`。知らない task_id は 404。
+
 ## 6. 入力のフォーマット
 
 ### 6.1 API 定義

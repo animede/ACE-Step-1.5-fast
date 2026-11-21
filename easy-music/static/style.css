@@ -1965,3 +1965,10 @@ body::after {
         width: 56px;
     }
 }
+
+/* 生成中だけ出る中止ボタン(サーバ側のジョブも /v1/cancel で止める) */
+.generate-btn.cancel-btn {
+    background: linear-gradient(135deg, #6b7280, #374151);
+    padding: 15px 20px;
+    margin-left: 8px;
+}

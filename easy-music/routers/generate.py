@@ -271,6 +271,23 @@ async def generate_music(request: GenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/cancel/{task_id}")
+async def cancel_task(task_id: str):
+    """生成の中止。ACE サーバの /v1/cancel を呼び、「ACE 生成中」のフラグも下ろす(同梱 LLM を再び GPU で起こせるように)。"""
+    try:
+        result = await ace_step_client.cancel_task(task_id)
+    except Exception as e:
+        return {"success": False, "error": f"ACE サーバに接続できません: {e}"}
+    finally:
+        _ace_finished()
+    code = result.get("code", 200) if isinstance(result, dict) else 500
+    if code != 200:
+        return {"success": False, "error": result.get("error") or f"HTTP {code}"}
+    data = result.get("data", {}) or {}
+    logger.info(f"[cancel] task {task_id} -> {data.get('status')}")
+    return {"success": True, "task_id": task_id, "status": data.get("status")}
+
+
 @router.get("/status/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(task_id: str):
     """

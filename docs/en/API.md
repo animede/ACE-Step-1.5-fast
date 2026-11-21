@@ -427,6 +427,19 @@ curl -X POST http://localhost:8001/query_result \
 
 ---
 
+### 5.5 Cancel a Task
+
+**POST** `/v1/cancel` (same auth as the other `/v1/*` routes)
+
+```json
+{"task_id": "<task_id returned by /release_task>"}
+```
+
+- A queued task becomes `cancelled` at once and the worker skips it.
+- A running task stops **after the current diffusion step** (the loop checks the request every step), so the GPU is free within seconds.
+- `/query_result` reports it as `status: 2` with `error: "cancelled by client"`.
+- Response: `{"task_id": ..., "status": "cancelled" | "cancelling" | "succeeded" | "failed"}`; unknown task_id → 404.
+
 ## 6. Format Input
 
 ### 6.1 API Definition
