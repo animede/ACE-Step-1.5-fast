@@ -25,61 +25,10 @@ rem see setup.bat: Hugging Face cache without symlinks (WinError 1314 on PCs wit
 if not defined HF_HUB_DISABLE_SYMLINKS set HF_HUB_DISABLE_SYMLINKS=1
 if exist ".venv\Scripts\activate.bat" call ".venv\Scripts\activate.bat"
 
-rem No profile given: pick it from the card's VRAM so a 12 GB GPU does not silently get the 16gb default
-rem (XL-SFT, 50 steps: runs, but takes minutes). 14000 MiB threshold: 12 GB cards report ~12288, 16 GB ~16376.
-set "ACESTEP_SMI_GPU="
-if defined CUDA_VISIBLE_DEVICES set "ACESTEP_SMI_GPU=-i %CUDA_VISIBLE_DEVICES%"
-rem Older drivers keep nvidia-smi.exe in "NVIDIA Corporation\NVSMI" instead of System32 (not on PATH): add it.
-if exist "%ProgramFiles%\NVIDIA Corporation\NVSMI\nvidia-smi.exe" set "PATH=%PATH%;%ProgramFiles%\NVIDIA Corporation\NVSMI"
-for /f "usebackq tokens=1 delims=, " %%v in (`nvidia-smi %ACESTEP_SMI_GPU% --query-gpu=memory.total --format=csv,noheader,nounits 2^>nul`) do (
-    if not defined ACESTEP_VRAM_MIB set ACESTEP_VRAM_MIB=%%v
-)
-rem No nvidia-smi: ask torch (a few seconds) so the profile is still chosen from the real VRAM.
-if not defined ACESTEP_VRAM_MIB (
-    for /f "usebackq" %%v in (`python -c "import torch;print(torch.cuda.get_device_properties(0).total_memory//1048576)" 2^>nul`) do (
-        if not defined ACESTEP_VRAM_MIB set ACESTEP_VRAM_MIB=%%v
-    )
-)
-if not defined ACESTEP_VRAM_MIB if not defined ACESTEP_GPU_PROFILE (
-    echo.
-    echo ============================================================================
-    echo  WARNING: could not read the GPU VRAM ^(nvidia-smi and torch both failed^). Assuming 16gb.
-    echo  On an 8 GB / 12 GB card set   set ACESTEP_GPU_PROFILE=12gb   before starting ^(8 GB: see README^).
-    echo  (JP) GPU VRAM wo yomemasen deshita. 16gb wo katei shimasu. 8GB / 12GB no card nara
-    echo  kidou mae ni  set ACESTEP_GPU_PROFILE=12gb  wo shitei shite kudasai ^(8GB: README no 5 settei^).
-    echo ============================================================================
-    echo.
-)
-if not defined ACESTEP_GPU_PROFILE if defined ACESTEP_VRAM_MIB (
-    if %ACESTEP_VRAM_MIB% LSS 14000 (set ACESTEP_GPU_PROFILE=12gb) else (set ACESTEP_GPU_PROFILE=16gb)
-    echo [run_api_server_fast] GPU VRAM %ACESTEP_VRAM_MIB% MiB -^> ACESTEP_GPU_PROFILE=!ACESTEP_GPU_PROFILE! ^(set ACESTEP_GPU_PROFILE to override; large for ^>= 40 GB^)
-    rem 8 GB class (below 10000 MiB): 12gb alone does not fit (2B turbo 4.8 + LM 1.3 + VAE 0.3 + TE 1.2 GB) and fails at
-    rem load or spills to shared memory. Apply the verified 8 GB recipe from the README unless each is set already.
-    if %ACESTEP_VRAM_MIB% LSS 10000 (
-        if not defined ACESTEP_LM_OFFLOAD_TO_CPU set ACESTEP_LM_OFFLOAD_TO_CPU=1
-        if not defined ACESTEP_RESIDENT_COMPONENTS set ACESTEP_RESIDENT_COMPONENTS=none
-        if not defined ACESTEP_VAE_DECODE_CHUNK_SIZE set ACESTEP_VAE_DECODE_CHUNK_SIZE=128
-        if not defined ACESTEP_QUANTIZATION set ACESTEP_QUANTIZATION=int8_weight_only
-        echo [run_api_server_fast] 8 GB class: LM/VAE offloaded, decode chunk 128, int8_weight_only ^(8 GB settings applied automatically^)
-    )
-)
-rem A profile set by hand (or left in the user's environment variables) is respected, but warn when it cannot fit:
-rem 16gb loads XL-SFT (10 GB bf16) and large keeps every model resident, which on a < 14 GB card spills into
-rem shared GPU memory and crawls. Check with:  echo %ACESTEP_GPU_PROFILE%   and clear with:  set ACESTEP_GPU_PROFILE=
-if defined ACESTEP_GPU_PROFILE if defined ACESTEP_VRAM_MIB (
-    if %ACESTEP_VRAM_MIB% LSS 14000 if /i not "%ACESTEP_GPU_PROFILE%"=="12gb" (
-        echo.
-        echo ============================================================================
-        echo  WARNING: ACESTEP_GPU_PROFILE=%ACESTEP_GPU_PROFILE% is set, but this GPU has only %ACESTEP_VRAM_MIB% MiB.
-        echo  XL models do not fit: expect shared-GPU-memory spill and very slow generation.
-        echo  Clear it with   set ACESTEP_GPU_PROFILE=   ^(or remove it from the Windows environment
-        echo  variables^) and start again, so the launcher can pick 12gb / the 8 GB settings.
-        echo  (JP) ACESTEP_GPU_PROFILE=%ACESTEP_GPU_PROFILE% ga shitei sarete imasu ga, kono GPU wa %ACESTEP_VRAM_MIB% MiB desu.
-        echo  set ACESTEP_GPU_PROFILE=  de keshite kara kidou shinaoshite kudasai ^(jidou de 12gb / 8GB settei ga hairimasu^).
-        echo ============================================================================
-        echo.
-    )
-)
+rem Profile from the card's VRAM (12gb below 14 GB, plus the 8 GB settings below 10 GB; a value you set by
+rem hand wins). The decision lives in scripts\gpu_profile_env.py, which prints NAME=VALUE lines: cmd's
+rem nested ( ) blocks, escaping and code pages are too fragile for this logic.
+for /f "usebackq tokens=1,* delims==" %%a in (`python scripts\gpu_profile_env.py`) do set "%%a=%%b"
 if not defined ACESTEP_GPU_PROFILE set ACESTEP_GPU_PROFILE=16gb
 if /i "%ACESTEP_GPU_PROFILE%"=="large" (
     if not defined ACESTEP_DIT_RESIDENCY set ACESTEP_DIT_RESIDENCY=shared
@@ -93,7 +42,7 @@ if /i "%ACESTEP_GPU_PROFILE%"=="large" (
 if /i "%ACESTEP_GPU_PROFILE%"=="12gb" (
     if not defined ACESTEP_CONFIG_PATH set ACESTEP_CONFIG_PATH=acestep-v15-turbo
     if not defined ACESTEP_CONFIG_PATH2 set ACESTEP_CONFIG_PATH2=acestep-v15-base
-    rem no third slot: leave ACESTEP_CONFIG_PATH3 undefined (an unset / empty slot is not loaded)
+    rem no third slot: leave ACESTEP_CONFIG_PATH3 undefined - an unset or empty slot is not loaded
     set ACESTEP_NO_THIRD_SLOT=1
 )
 if not defined ACESTEP_CONFIG_PATH set ACESTEP_CONFIG_PATH=acestep-v15-xl-sft
