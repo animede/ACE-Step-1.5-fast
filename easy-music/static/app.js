@@ -3025,6 +3025,14 @@ async function fetchSongTitle(lyrics, genre, language, theme, taskId) {
         setSongTitle('');
         return;
     }
+    // テーマがあればそれを曲名にする(LLM を呼ばない)。曲ができた直後は ACE が使ったメモリがまだ返っておらず、
+    // ここで同梱 LLM を起こすと CPU 版が選ばれて次の作詞までそれが残る(6GB / 8GB で確認)
+    if (theme && theme.trim()) {
+        const title = theme.trim();
+        setSongTitle(title);
+        if (taskId) updateHistoryEntry(taskId, null, { title });
+        return;
+    }
     try {
         const resp = await apiRequest('/api/title', 'POST', {
             lyrics: lyrics,
@@ -3076,7 +3084,28 @@ function applyVizMood(moodId) {
 /**
  * LLMでビジュアライザー雰囲気を推定して適用
  */
+// ムードチップ / ジャンル → ビジュアライザの雰囲気(LLM を呼ばずに決める)
+const MOOD_TO_VIZ = {
+    'bright and happy': 'energetic', 'bittersweet and sad': 'melancholic', 'intense and powerful': 'epic',
+    'calm and gentle': 'healing', 'mysterious and fantastical': 'mystical', 'romantic and tender': 'romantic',
+    'playful and fun': 'festive', 'melancholic and dark': 'dark', 'epic and grand': 'epic', 'cool and stylish': 'cyber',
+};
+const GENRE_TO_VIZ = [
+    [/ballad|enka|folk|kayokyoku|new music/i, 'nostalgic'], [/rock|metal|punk/i, 'energetic'], [/edm|techno|house|trance|phonk|vocaloid/i, 'cyber'],
+    [/jazz|lo-?fi|chill|ambient|bossa/i, 'healing'], [/r&b|soul|city pop/i, 'romantic'], [/anime|game|orchestr|cinematic/i, 'epic'],
+    [/hip ?hop|rap|reggaeton|latin/i, 'festive'],
+];
+function vizMoodFromSelection(genre) {
+    const m = (typeof getMood === 'function' ? getMood() : '') || '';
+    if (MOOD_TO_VIZ[m]) return MOOD_TO_VIZ[m];
+    for (const [re, id] of GENRE_TO_VIZ) if (re.test(genre || '')) return id;
+    return '';
+}
+
 async function fetchVizMood(lyrics, caption, genre, omakaseQuery) {
+    // 選んだムードかジャンルで決まるなら LLM を呼ばない(曲の直後に LLM を起こさないため)
+    const local = omakaseQuery ? '' : vizMoodFromSelection(genre);
+    if (local) { applyVizMood(local); return; }
     try {
         const resp = await apiRequest('/api/viz_mood', 'POST', {
             lyrics: (lyrics || '').substring(0, 500),

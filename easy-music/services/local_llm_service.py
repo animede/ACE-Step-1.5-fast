@@ -401,7 +401,12 @@ class LocalLLMService:
     def _ensure_running_locked(self) -> str:
         port = _port()
         if self._running() and _health_ok(port):
-            return self._base_url()
+            # CPU 版が動いているが GPU に余裕が戻っている(曲の直後に起きた CPU 版が残るケース)なら、起動し直す
+            if not self._external_on_port and not self._gpu and use_gpu():
+                logger.info("ローカルLLM: CPU 版が動いていますが GPU に空きがあるので CUDA 版で起動し直します")
+                self.stop()
+            else:
+                return self._base_url()
         if _health_ok(port):
             logger.info("ポート %d で既に llama-server(互換サーバ)が動いているのでそれを使います", port)
             self._external_on_port = True
