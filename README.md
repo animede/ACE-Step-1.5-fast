@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-23 00:10 JST** — 実測: i3 + RTX 3050 6GB で同梱 LLM を GPU に載せると、テーマを変えた曲が 3 分 28 秒 → 2 分 41 秒(今の既定)。「歌詞を新しくして生成」ボタン。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-23 01:00 JST** — Easy Music: 「おまかせ生成」の絵文字(🪄、Windows 10 では表示できない)を ✨ に。「歌詞を新しくして生成」は歌詞があるときだけ表示。同梱 LLM は空き VRAM 1GB 以上で CUDA 版、失敗時は CPU 版へ。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。

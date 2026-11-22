@@ -162,10 +162,10 @@ const I18N = {
         label_blend: '➕ ミックス：',
         blend_none: '（なし）',
         // Omakase
-        label_omakase: '🪄 おまかせ生成',
+        label_omakase: '✨ おまかせ生成',
         placeholder_omakase: '例: 夏の海辺で聴きたい爽やかなポップ',
         btn_random: 'ランダム',
-        status_omakase: '🪄 おまかせ生成中…AIが全パラメータを自動決定',
+        status_omakase: '✨ おまかせ生成中…AIが全パラメータを自動決定',
         status_random_loading: '🎲 ランダムサンプルを取得中...',
         status_random_filled: '🎲 ランダムパラメータをセットしました',
         status_random_fail: '⚠️ ランダムサンプルの取得に失敗しました',
@@ -346,10 +346,10 @@ const I18N = {
         label_blend: '➕ Mix with:',
         blend_none: '(none)',
         // Omakase
-        label_omakase: '🪄 Quick Generate',
+        label_omakase: '✨ Quick Generate',
         placeholder_omakase: 'e.g. A refreshing pop song for a beach day',
         btn_random: 'Random',
-        status_omakase: '🪄 Quick generating…AI decides all parameters',
+        status_omakase: '✨ Quick generating…AI decides all parameters',
         status_random_loading: '🎲 Loading random sample...',
         status_random_filled: '🎲 Random parameters set',
         status_random_fail: '⚠️ Failed to load random sample',
@@ -1876,14 +1876,14 @@ async function generateOmakase(query) {
         // 履歴に登録
         addHistoryEntry({
             task_id: taskId,
-            genre: '🪄 おまかせ',
+            genre: '✨ おまかせ',
             caption: query.substring(0, 80),
             duration: params.audio_duration,
         });
 
         generatePlaybackBackground({
             taskId,
-            genre: '🪄 おまかせ',
+            genre: '✨ おまかせ',
             theme: query,
             caption: '',
             lyrics: '',
@@ -1940,11 +1940,11 @@ async function generateOmakase(query) {
 
                     // 既存プレーヤーで再生
                     currentTaskId = taskId;
-                    currentOverlayGenre = '🪄 おまかせ';
+                    currentOverlayGenre = '✨ おまかせ';
                     currentOverlayBackgroundUrl = getHistoryEntryByTaskId(taskId)?.background_image_url || '';
                     currentResults = statusResult.results.map(result => ({
                         ...result,
-                        genre: '🪄 おまかせ',
+                        genre: '✨ おまかせ',
                         background_image_url: currentOverlayBackgroundUrl,
                     }));
                     currentLyrics = '';
