@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-23 10:30 JST** — 実測: i3 + RTX 3050 6GB の今の既定(同梱 LLM は GPU、曲の直後に LLM を呼ばない)で、1 曲目 3 分 5 秒の曲が 2 分 24 秒、テーマを変えて 3 分 35 秒が 2 分 27 秒。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-22 18:30 JST** — xl-sft / base の出力が濁る不具合を修正(サンプラー補正 DCW が全モデルで強制 ON だった。upstream #1259 と同じ原因。未指定なら turbo は ON、sft / base は OFF)。モデル切替後に thinking で生成すると「Inference tensors do not track version counter」で失敗する不具合も修正。直す前のサーバは再起動が必要。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
@@ -26,6 +26,8 @@
 | Windows 対応 | `setup.bat` / `run_api_server_fast.bat` / `run_easy_music.bat`。Windows 10 / 11 の実機で確認済み |
 | Web UI | `webui/`(HTML + JS)。生成・cover・repaint・簡易モード・LM 設定・結果の再生と履歴・モデル管理 |
 | 同梱アプリ | `easy-music/`: ワンクリック生成の Web アプリ Easy Music(別プロセス、`./run_easy_music.sh`) |
+| DCW の既定 | `dcw_enabled` 未指定なら読み込んだモデルで決める(turbo は ON、sft / base は OFF)。fork の土台(upstream 5/4 時点)は API 経由で全モデル強制 ON で、xl-sft / base の出力が濁っていた(upstream #1259 と同じ)。11/22 に修正 |
+| 切替後の生成 | 排他常駐でモデルを切り替えた直後に thinking ON で生成すると失敗していた(バッファの `.data` 差し替えが原因)。11/22 に修正 |
 | 実装済みだが既定 OFF | `ACESTEP_DIT_FUSIONS`(attention / MLP / adaLN の eager 融合、効果 ≤3%)、`ACESTEP_QUANTIZATION=int8_plain` |
 
 実測と注意点はすべて [docs/ja/低VRAM_XL_プローブ_20261116.md](docs/ja/低VRAM_XL_プローブ_20261116.md) に記録しています。

@@ -334,5 +334,22 @@ class TurboGuidanceScaleTests(unittest.TestCase):
         )
 
 
+    def test_dcw_follows_the_loaded_model_family_unless_set(self):
+        """Unset dcw_enabled is on for turbo and off for sft/base (upstream #1259); an explicit value wins."""
+        for is_turbo, explicit, expected in ((False, None, False), (True, None, True), (True, False, False), (False, True, True)):
+            host = _Host(is_turbo=is_turbo)
+            host._readiness_error = None
+            kwargs = dict(captions="cap", lyrics="lyr", inference_steps=8, guidance_scale=1.0,
+                          use_random_seed=False, seed=77, task_type="text2music")
+            if explicit is not None:
+                kwargs["dcw_enabled"] = explicit
+            self.assertEqual(host.generate_music(**kwargs), host._final_payload)
+            self.assertIs(
+                host.calls["_run_generate_music_service_with_progress"]["dcw_enabled"],
+                expected,
+                msg=f"is_turbo={is_turbo} explicit={explicit}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

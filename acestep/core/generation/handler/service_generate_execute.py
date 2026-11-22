@@ -61,6 +61,14 @@ class ServiceGenerateExecuteMixin:
             return seed_list
         return random.randint(0, 2**32 - 1)
 
+    def _resolve_service_dcw_enabled(self, generate_kwargs: Dict[str, Any]) -> bool:
+        """Return an explicit or loaded-model DCW value for backend execution."""
+        dcw_enabled = generate_kwargs.get("dcw_enabled")
+        if dcw_enabled is not None:
+            return bool(dcw_enabled)
+        config = getattr(self, "config", None)
+        return bool(getattr(config, "is_turbo", False))
+
     def _build_service_generate_kwargs(
         self,
         payload: Dict[str, Any],
@@ -80,7 +88,7 @@ class ServiceGenerateExecuteMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
-        dcw_enabled: bool = True,
+        dcw_enabled: Optional[bool] = None,
         dcw_mode: str = "double",
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
@@ -238,7 +246,7 @@ class ServiceGenerateExecuteMixin:
                             sampler_mode=generate_kwargs.get("sampler_mode", "euler"),
                             velocity_norm_threshold=generate_kwargs.get("velocity_norm_threshold", 0.0),
                             velocity_ema_factor=generate_kwargs.get("velocity_ema_factor", 0.0),
-                            dcw_enabled=generate_kwargs.get("dcw_enabled", True),
+                            dcw_enabled=self._resolve_service_dcw_enabled(generate_kwargs),
                             dcw_mode=generate_kwargs.get("dcw_mode", "double"),
                             dcw_scaler=generate_kwargs.get("dcw_scaler", 0.05),
                             dcw_high_scaler=generate_kwargs.get("dcw_high_scaler", 0.02),

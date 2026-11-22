@@ -1,5 +1,6 @@
 """Unit tests for service-generation execution helper mixin."""
 
+import types
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,17 @@ class _Host(ServiceGenerateExecuteMixin, ServiceGenerateOutputsMixin):
 
 class ServiceGenerateExecuteMixinTests(unittest.TestCase):
     """Validate helper behavior for kwargs and output assembly."""
+
+    def test_resolve_service_dcw_enabled_uses_loaded_config_when_unset(self):
+        """None follows config.is_turbo (on for turbo, off for sft/base); explicit values pass through."""
+        host = _Host()
+        host.config = types.SimpleNamespace(is_turbo=False)
+        self.assertIs(host._resolve_service_dcw_enabled({"dcw_enabled": None}), False)
+        self.assertIs(host._resolve_service_dcw_enabled({}), False)
+        self.assertIs(host._resolve_service_dcw_enabled({"dcw_enabled": True}), True)
+        host.config = types.SimpleNamespace(is_turbo=True)
+        self.assertIs(host._resolve_service_dcw_enabled({"dcw_enabled": None}), True)
+        self.assertIs(host._resolve_service_dcw_enabled({"dcw_enabled": False}), False)
 
     def test_build_generate_kwargs_adds_timesteps_tensor(self):
         """Timesteps input should be converted to a device tensor in kwargs."""

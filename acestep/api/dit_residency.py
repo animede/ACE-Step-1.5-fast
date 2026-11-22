@@ -41,6 +41,24 @@ def _label(handler: Any) -> str:
     return str(params.get("config_path") or type(handler).__name__)
 
 
+def _rebind(model: Any, name: str, tensor: torch.Tensor, new: torch.Tensor) -> None:
+    """Point the parameter or buffer ``name`` of ``model`` at ``new``.
+
+    Parameters keep their object (``.data`` swap, so optimizer-free inference code holding
+    the Parameter still sees it). Buffers are re-registered instead: ``buffer.data = x``
+    makes the buffer inherit the version-counter state of ``x``, and a buffer swapped that
+    way through the mmap store failed later inside ``torch.inference_mode`` with
+    "Inference tensors do not track version counter" (ResidualFSQ ``scales`` on the first
+    thinking-mode decode after a model switch, 2026-11-22).
+    """
+    module_name, _, attr = name.rpartition(".")
+    module = model.get_submodule(module_name) if module_name else model
+    if attr in module._parameters:
+        tensor.data = new
+    else:
+        module._buffers[attr] = new
+
+
 class DitResidency:
     """Track which handler's DiT currently lives on the GPU and swap on demand."""
 
@@ -128,7 +146,7 @@ class DitResidency:
             master = masters.get(name)
             if master is None or master.shape != tensor.shape:
                 raise RuntimeError(f"[dit_residency] no host copy for {name} in the {self.store.name} store")
-            tensor.data = master
+            _rebind(model, name, tensor, master)
         silence = getattr(handler, "silence_latent", None)
         if silence is not None:
             handler.silence_latent = silence.to("cpu")
@@ -151,9 +169,9 @@ class DitResidency:
             self.active = handler
             return
         started = time.time()
-        for _name, tensor in list(named_tensors(model)):
+        for name, tensor in list(named_tensors(model)):
             if tensor.device.type == "cpu":
-                tensor.data = tensor.data.to(device, non_blocking=tensor.data.is_pinned())
+                _rebind(model, name, tensor, tensor.data.to(device, non_blocking=tensor.data.is_pinned()))
         silence = getattr(handler, "silence_latent", None)
         if silence is not None:
             handler.silence_latent = silence.to(device)

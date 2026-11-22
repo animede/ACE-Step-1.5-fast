@@ -175,6 +175,27 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertAlmostEqual(0.42, setup.params.cover_noise_strength)
 
 
+    def test_dcw_enabled_defaults_to_none_and_explicit_value_passes_through(self) -> None:
+        """An omitted dcw_enabled stays None (resolved later from the loaded model); explicit values pass through."""
+
+        kwargs = dict(
+            caption="cap", lyrics="lyr", bpm=None, key_scale="", time_signature="", audio_duration=None,
+            thinking=False, sample_mode=False, format_has_duration=False, use_cot_caption=False,
+            use_cot_language=False, lm_top_k=0, lm_top_p=0.9, parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False, default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+        setup = build_generation_setup(req=_base_req(), **kwargs)      # request without the dcw fields (older clients)
+        self.assertIsNone(setup.params.dcw_enabled)
+        self.assertEqual("double", setup.params.dcw_mode)
+
+        req = _base_req()
+        req.dcw_enabled = False
+        req.dcw_mode = "low"
+        setup = build_generation_setup(req=req, **kwargs)
+        self.assertIs(False, setup.params.dcw_enabled)
+        self.assertEqual("low", setup.params.dcw_mode)
+
     def test_auto_duration_sentinel_passes_through(self) -> None:
         """duration=-1 or None should pass auto-sentinel, not hardcoded 120s."""
 

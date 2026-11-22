@@ -209,6 +209,11 @@ APIはほとんどのパラメータで **snake_case** と **camelCase** の両�
 | `infer_method` | string | `"ode"` | 拡散推論方法：`"ode"`（Euler、より高速）または `"sde"`（確率的）|
 | `timesteps` | string | null | カンマ区切りのカスタムタイムステップ（例：`"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`）。`inference_steps` と `shift` をオーバーライド |
 | `use_adg` | bool | `false` | 適応デュアルガイダンスを使用（baseモデルのみ）|
+| `dcw_enabled` | bool | null | DCW（ウェーブレット領域の差分補正）。未指定なら読み込んだモデルで決める: turbo は ON、sft / base は OFF（sft / base で強制 ON にすると出力が濁る。upstream #1259）。明示した値はそのまま使う |
+| `dcw_mode` | string | `"double"` | DCW の帯域: `"low"` / `"high"` / `"double"` / `"pix"` |
+| `dcw_scaler` | float | `0.05` | DCW の低域スケーラ（`high` / `pix` では唯一のスケーラ）|
+| `dcw_high_scaler` | float | `0.02` | DCW の高域スケーラ（`double` のみ）|
+| `dcw_wavelet` | string | `"haar"` | PyWavelets の基底（例: `haar`、`db4`、`sym8`）|
 | `cfg_interval_start` | float | `0.0` | CFG適用開始比率（0.0-1.0）|
 | `cfg_interval_end` | float | `1.0` | CFG適用終了比率（0.0-1.0）|
 
@@ -779,6 +784,8 @@ APIサーバーは環境変数で設定できます：
 - 読み込まれていないモデル名を `model` に指定すると、タスクが失敗して `Model '...' is not loaded on this server (loaded: ...)` が error に入る。オリジナルは黙って primary で生成するが、思ったのと違うモデルで生成されないように変えた。先に `POST /v1/init` で読み込む。
 - `POST /v1/init` は、この GPU の VRAM に載らないモデル(14GB 未満への XL など)を重みを読む前に `VRAM too small` で断る(400)。
 - `GET /v1/models` の各モデルに `is_loaded` / `vram_ok` / `min_vram_gb` を足した(既存のフィールドはそのまま)。
+- `dcw_enabled`(4.2 節)を未指定のときは、読み込んだモデルで決める(turbo は ON、sft / base は OFF)。土台にした upstream(5/4 時点)は API 経由では全モデルで ON になっていて、xl-sft / base の出力が濁っていた(upstream #1259 と同じ原因。後に upstream も同じ形で修正)。2026-11-22 に修正。古いサーバを動かし続けている場合は再起動が必要。
+- 排他常駐で別モデルへ切り替えた直後の thinking ON の生成が `Inference tensors do not track version counter` で失敗していたのを修正(2026-11-22)。
 
 ### 12.2 追加したもの
 

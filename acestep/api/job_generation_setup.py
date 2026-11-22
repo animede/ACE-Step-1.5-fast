@@ -175,6 +175,14 @@ def build_generation_setup(
         shift=req.shift,
         infer_method=req.infer_method,
         timesteps=parsed_timesteps,
+        # dcw_enabled is forwarded as-is: an explicit True/False passes through,
+        # None is resolved by generate_music from the loaded model's is_turbo
+        # (upstream #1259 / #1273: sft/base with DCW forced on are distorted).
+        dcw_enabled=getattr(req, "dcw_enabled", None),
+        dcw_mode=getattr(req, "dcw_mode", "double"),
+        dcw_scaler=getattr(req, "dcw_scaler", 0.05),
+        dcw_high_scaler=getattr(req, "dcw_high_scaler", 0.02),
+        dcw_wavelet=getattr(req, "dcw_wavelet", "haar"),
         repainting_start=req.repainting_start,
         repainting_end=req.repainting_end if req.repainting_end else -1,
         chunk_mask_mode=getattr(req, "chunk_mask_mode", "auto"),

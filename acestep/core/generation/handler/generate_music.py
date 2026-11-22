@@ -177,6 +177,20 @@ class GenerateMusicMixin:
             "error": msg,
         }
 
+    def _resolve_dcw_enabled(self, dcw_enabled: Optional[bool]) -> bool:
+        """Resolve an explicit or model-aware DCW setting.
+
+        Args:
+            dcw_enabled: Explicit caller choice, or ``None`` for the model
+                family default.
+
+        Returns:
+            The explicit choice, or the loaded configuration's Turbo setting.
+        """
+        if dcw_enabled is not None:
+            return bool(dcw_enabled)
+        return bool(self.is_turbo_model())
+
     def generate_music(
         self,
         captions: str,
@@ -209,7 +223,7 @@ class GenerateMusicMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
-        dcw_enabled: bool = True,
+        dcw_enabled: Optional[bool] = None,
         dcw_mode: str = "double",
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
@@ -246,7 +260,9 @@ class GenerateMusicMixin:
             seed: Optional explicit seed from caller/UI.
             infer_method: Diffusion method name.
             dcw_enabled: Enable Differential Correction in Wavelet domain
-                (CVPR 2026, arXiv:2604.16044) at each sampler step.  Off by default.
+                (CVPR 2026, arXiv:2604.16044) at each sampler step.  ``None``
+                selects the loaded model family's default: on for turbo, off
+                for sft/base (upstream #1259: forcing it on distorts them).
             dcw_mode: DCW mode — ``"low"`` / ``"high"`` / ``"double"`` / ``"pix"``.
             dcw_scaler: Low-band (or single-band) correction strength; modulated
                 by ``t_curr`` inside the sampler, so the effective strength decays
@@ -281,6 +297,10 @@ class GenerateMusicMixin:
             audio_code_string=audio_code_string,
             instruction=instruction,
         )
+
+        # DCW is a turbo-side correction: forced on for sft/base it distorts
+        # the output (upstream #1259), so an unset value follows the model.
+        dcw_enabled = self._resolve_dcw_enabled(dcw_enabled)
 
         # Turbo models bake guidance into the distillation process and do not
         # use CFG.  Forcing guidance_scale to 1.0 avoids double-application of

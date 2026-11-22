@@ -212,6 +212,11 @@ User-provided values always win; LM only fills the fields that are empty/missing
 | `infer_method` | string | `"ode"` | Diffusion inference method: `"ode"` (Euler, faster) or `"sde"` (stochastic). |
 | `timesteps` | string | null | Custom timesteps as comma-separated values (e.g., `"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`). Overrides `inference_steps` and `shift`. |
 | `use_adg` | bool | `false` | Use Adaptive Dual Guidance (base model only) |
+| `dcw_enabled` | bool | null | DCW (Differential Correction in Wavelet domain). If unset, the loaded model decides: on for turbo, off for sft / base (forcing it on for sft / base distorts the output, upstream #1259). An explicit value is used as-is. |
+| `dcw_mode` | string | `"double"` | DCW band mode: `"low"` / `"high"` / `"double"` / `"pix"` |
+| `dcw_scaler` | float | `0.05` | Low-band DCW scaler (the only scaler for `high` / `pix`) |
+| `dcw_high_scaler` | float | `0.02` | High-band DCW scaler (`double` only) |
+| `dcw_wavelet` | string | `"haar"` | PyWavelets basis (e.g. `haar`, `db4`, `sym8`) |
 | `cfg_interval_start` | float | `0.0` | CFG application start ratio (0.0-1.0) |
 | `cfg_interval_end` | float | `1.0` | CFG application end ratio (0.0-1.0) |
 
@@ -903,6 +908,8 @@ keep their request and response shapes. Reference application: the bundled Easy 
 - A `model` name that is not loaded fails the task with `Model '...' is not loaded on this server (loaded: ...)`. The original silently generates with the primary; this fork refuses so a request never runs on a model the client did not ask for. Load it first with `POST /v1/init`.
 - `POST /v1/init` refuses a model that cannot fit this GPU (XL on < 14 GB, for example) with `VRAM too small` (400) before reading any weights.
 - Each entry of `GET /v1/models` gains `is_loaded`, `vram_ok` and `min_vram_gb` (existing fields unchanged).
+- `dcw_enabled` (section 4.2) left unset is resolved from the loaded model (on for turbo, off for sft / base). The upstream snapshot this fork started from (2026-05-04) forced it on for every model over the API, which muddied xl-sft / base output (the same cause as upstream #1259, later fixed upstream the same way). Fixed 2026-11-22; a server started before the fix must be restarted.
+- With exclusive residency, a thinking-mode generation right after switching to another model failed with `Inference tensors do not track version counter`; fixed 2026-11-22.
 
 ### 12.2 Added
 
