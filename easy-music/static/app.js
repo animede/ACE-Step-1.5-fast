@@ -1401,6 +1401,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 「歌詞を新しくして生成」は歌詞欄に中身があるときだけ出す
+    document.getElementById('simple-lyrics')?.addEventListener('input', () => setRegenButton(false));
+    setRegenButton(false);
     // 起動時にサーバーから利用可能モデルを取得
     loadAvailableModels();
     // ACE サーバの準備状態を見る(準備中は生成ボタンを待たせる)
@@ -1705,10 +1708,13 @@ function clearActiveGeneration() {
     setRegenButton(false);
 }
 
-/** 「歌詞を新しくして生成」は生成ボタンと同じタイミングで押せなくする */
+/** 「歌詞を新しくして生成」: 歌詞がある(曲を作ったあと)ときだけ出し、生成中は押せなくする */
 function setRegenButton(disabled) {
     const r = document.getElementById('simple-regen-btn');
-    if (r) r.disabled = disabled;
+    if (!r) return;
+    const hasLyrics = !!(document.getElementById('simple-lyrics')?.value || '').trim();
+    r.style.display = hasLyrics ? '' : 'none';
+    r.disabled = disabled;
 }
 
 async function cancelGeneration() {

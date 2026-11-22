@@ -90,7 +90,8 @@ def gpu_setting() -> str:
     return (os.environ.get("LOCAL_LLM_GPU", "").strip() or "auto").lower()
 
 
-GPU_AUTO_MIN_FREE_MIB = 2048     # auto で GPU を使うのに要る空き VRAM(--fit が載せる層が無いほど小さければ CPU のほうが素直)
+GPU_AUTO_MIN_FREE_MIB = 1024     # auto で GPU を使うのに要る空き VRAM。CUDA 版は層が少なくても入力の読み込み(prompt eval)を GPU で
+                                 # 行うので、i3 では層が 0 でも CPU 版より速い。文脈と作業領域の分だけ要る
 
 
 def nvidia_total_mib() -> Optional[int]:
@@ -407,6 +408,17 @@ class LocalLLMService:
             return self._base_url()
         self._external_on_port = False
         gpu = use_gpu()
+        try:
+            return self._launch(port, gpu)
+        except RuntimeError as e:
+            if not gpu:
+                raise
+            # CUDA 版が起動できない(空き VRAM が足りない、cudart が合わない等)ときは CPU 版で続ける
+            logger.warning("ローカルLLM: CUDA 版の起動に失敗したので CPU 版で起動し直します: %s", e)
+            self.stop()
+            return self._launch(port, False)
+
+    def _launch(self, port: int, gpu: bool) -> str:
         exe = find_binary(gpu) or download_binary(gpu)
         gguf = download_model()
         os.makedirs(LOGS_DIR, exist_ok=True)
