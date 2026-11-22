@@ -3027,8 +3027,10 @@ async function fetchSongTitle(lyrics, genre, language, theme, taskId) {
     }
     // テーマがあればそれを曲名にする(LLM を呼ばない)。曲ができた直後は ACE が使ったメモリがまだ返っておらず、
     // ここで同梱 LLM を起こすと CPU 版が選ばれて次の作詞までそれが残る(6GB / 8GB で確認)
-    if (theme && theme.trim()) {
-        const title = theme.trim();
+    // テーマが無ければ、歌詞の最初の行(構造タグを除く)を曲名にする。曲の直後に LLM は呼ばない
+    const firstLine = (lyrics || '').split('\n').map(l => l.trim()).find(l => l && !/^\[.*\]$/.test(l)) || '';
+    const title = (theme && theme.trim()) || firstLine.slice(0, 30);
+    if (title) {
         setSongTitle(title);
         if (taskId) updateHistoryEntry(taskId, null, { title });
         return;
@@ -3093,19 +3095,20 @@ const MOOD_TO_VIZ = {
 const GENRE_TO_VIZ = [
     [/ballad|enka|folk|kayokyoku|new music/i, 'nostalgic'], [/rock|metal|punk/i, 'energetic'], [/edm|techno|house|trance|phonk|vocaloid/i, 'cyber'],
     [/jazz|lo-?fi|chill|ambient|bossa/i, 'healing'], [/r&b|soul|city pop/i, 'romantic'], [/anime|game|orchestr|cinematic/i, 'epic'],
-    [/hip ?hop|rap|reggaeton|latin/i, 'festive'],
+    [/hip ?hop|rap|reggaeton|latin/i, 'festive'], [/j-?pop|k-?pop|pop|idol/i, 'energetic'],
 ];
 function vizMoodFromSelection(genre) {
     const m = (typeof getMood === 'function' ? getMood() : '') || '';
     if (MOOD_TO_VIZ[m]) return MOOD_TO_VIZ[m];
     for (const [re, id] of GENRE_TO_VIZ) if (re.test(genre || '')) return id;
-    return '';
+    return 'energetic';   // 決まらなければ既定。曲の直後に LLM を起こさないことを優先する
 }
 
 async function fetchVizMood(lyrics, caption, genre, omakaseQuery) {
-    // 選んだムードかジャンルで決まるなら LLM を呼ばない(曲の直後に LLM を起こさないため)
-    const local = omakaseQuery ? '' : vizMoodFromSelection(genre);
-    if (local) { applyVizMood(local); return; }
+    // 曲の直後に LLM を呼ばない: 雰囲気は選んだムード / ジャンル / 既定で決める(LLM に頼む経路は残すが使わない)
+    applyVizMood(vizMoodFromSelection(genre));
+    return;
+    // eslint-disable-next-line no-unreachable
     try {
         const resp = await apiRequest('/api/viz_mood', 'POST', {
             lyrics: (lyrics || '').substring(0, 500),
