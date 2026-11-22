@@ -44,7 +44,7 @@ import urllib.request
 import zipfile
 from typing import Any, Dict, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")   # Easy Music のログ設定で INFO が画面に出るロガー
 
 # モデル設定
 MODEL_REPO = "ggml-org/gemma-4-E4B-it-GGUF"
@@ -90,7 +90,7 @@ def gpu_setting() -> str:
     return (os.environ.get("LOCAL_LLM_GPU", "").strip() or "auto").lower()
 
 
-GPU_AUTO_MIN_TOTAL_MIB = 10000   # auto で GPU を使う最小の VRAM(8GB 級は CPU: ACE の待機 4GB + LLM + ACE の LM/TE が入らない)
+GPU_AUTO_MIN_FREE_MIB = 2048     # auto で GPU を使うのに要る空き VRAM(--fit が載せる層が無いほど小さければ CPU のほうが素直)
 
 
 def nvidia_total_mib() -> Optional[int]:
@@ -136,13 +136,13 @@ def use_gpu() -> bool:
     if not (x64 and cuda_platform):
         return False
     if mode == "auto":
-        total = nvidia_total_mib()
-        if total is None:
+        free = nvidia_free_mib()
+        if free is None:
             return False
-        if total < GPU_AUTO_MIN_TOTAL_MIB:
-            # 8GB 級: ACE(8GB 向け設定で待機 約 4GB)と同居すると、ACE の LM・TE が上がる段階であふれる。
-            # CPU で動かす(GPU にしたいときは LOCAL_LLM_GPU=all か層数を指定)
-            logger.info("ローカルLLM: VRAM %d MiB は %d MiB 未満なので CPU で動かします(LOCAL_LLM_GPU=all で GPU)", total, GPU_AUTO_MIN_TOTAL_MIB)
+        if free < GPU_AUTO_MIN_FREE_MIB:
+            # 空きが小さい(別の GPU アプリが使っている)ときだけ CPU。8GB / 6GB 級でも ACE の待機は約 3.3GB なので普通は載る。
+            # ACE の format_input と生成の前には止めるので、同居であふれることはない(2026-11-22 に 4060 8GB / i3 で確認: 歌詞が速くなった)
+            logger.info("ローカルLLM: 空き VRAM %d MiB が %d MiB 未満なので CPU で動かします(LOCAL_LLM_GPU=on で GPU に固定)", free, GPU_AUTO_MIN_FREE_MIB)
             return False
         return True
     return True

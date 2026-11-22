@@ -27,7 +27,7 @@ import httpx
 from config import settings
 from services.llm_service import llm_service
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")   # Easy Music のログ設定で INFO が画面に出るロガー
 
 DEFAULT_IMAGE_NEGATIVE_PROMPT = (
     "worst quality, low quality, blurry, lowres, noisy, grainy, jpeg artifacts, watermark, logo, text, signature, "

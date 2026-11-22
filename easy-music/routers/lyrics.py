@@ -234,6 +234,7 @@ class SongPlanRequest(BaseModel):
     want_lyrics: bool = Field(default=True, description="歌詞も作る(インストなら False)")
     want_caption: bool = Field(default=True, description="キャプションも作る")
     thinking: bool = Field(default=True, description="True=1 文キャプション / False=詳細キャプション")
+    theme: str = Field(default="", description="指定するとテーマ固定で歌詞とキャプションだけ作る")
 
 
 class SongPlanResponse(BaseModel):
@@ -253,7 +254,7 @@ async def song_plan(request: SongPlanRequest):
         r = await llm_service.generate_song_plan(
             genre=request.genre, language=request.language, mood=request.mood, vocal=request.vocal,
             tags=request.tags, want_lyrics=request.want_lyrics, want_caption=request.want_caption,
-            thinking=request.thinking,
+            thinking=request.thinking, theme=request.theme,
         )
         return SongPlanResponse(success=True, theme=r["theme"], lyrics=r.get("lyrics", ""),
                                 recommended_duration=int(r.get("recommended_duration", 90) or 90),

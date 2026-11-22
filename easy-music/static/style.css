@@ -1979,3 +1979,6 @@ body::after {
     filter: grayscale(0.6);
     cursor: wait;
 }
+
+/* テーマはそのままで歌詞を作り直して生成 */
+.generate-btn.regen-btn { background: linear-gradient(135deg, #0ea5e9, #6366f1); padding: 15px 20px; margin-left: 8px; }

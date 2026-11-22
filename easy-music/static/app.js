@@ -24,6 +24,8 @@ const I18N = {
         btn_debug: '音楽生成情報',
         btn_debug_open: '音楽生成情報 ▲',
         btn_generate: '🎵 音楽を生成',
+        btn_regen_lyrics: '✍️ 歌詞を新しくして生成',
+        btn_regen_lyrics_title: 'テーマはそのまま、歌詞とキャプションを作り直してから生成します',
         btn_generating: '<span class="spinner"></span> 生成中...',
         btn_cancel: '⏹ 中止',
         status_ace_wait: '⏳ ACE サーバの準備を待っています。起動直後はモデルの読み込みに数分かかります。ACE サーバの端末に「準備完了」(READY)が出ると自動で生成できるようになります(起動していなければ run_api_server_fast を実行)',
@@ -213,6 +215,8 @@ const I18N = {
         btn_debug: 'Music Generation Info',
         btn_debug_open: 'Music Generation Info ▲',
         btn_generate: '🎵 Generate Music',
+        btn_regen_lyrics: '✍️ New lyrics, then generate',
+        btn_regen_lyrics_title: 'Keeps the theme, rewrites the lyrics and caption, then generates',
         btn_generating: '<span class="spinner"></span> Generating...',
         btn_cancel: '⏹ Cancel',
         status_ace_wait: '⏳ Waiting for the ACE server. Right after start it loads models for a few minutes; generation unlocks when its console prints READY (if it is not running, start run_api_server_fast)',
@@ -1691,12 +1695,20 @@ function setActiveGeneration(taskId) {
     generationCancelRequested = false;
     const b = document.getElementById('simple-cancel-btn');
     if (b) { b.style.display = ''; b.disabled = false; }
+    setRegenButton(true);
 }
 
 function clearActiveGeneration() {
     activeGenerationTaskId = null;
     const b = document.getElementById('simple-cancel-btn');
     if (b) b.style.display = 'none';
+    setRegenButton(false);
+}
+
+/** 「歌詞を新しくして生成」は生成ボタンと同じタイミングで押せなくする */
+function setRegenButton(disabled) {
+    const r = document.getElementById('simple-regen-btn');
+    if (r) r.disabled = disabled;
 }
 
 async function cancelGeneration() {
@@ -2049,6 +2061,13 @@ async function checkAceReady() {
     setTimeout(checkAceReady, aceReady ? 30000 : 3000);
 }
 
+/** テーマはそのままで歌詞とキャプションを作り直してから生成(歌詞欄を空にして一括プランの「テーマ固定」経路へ) */
+function regenerateLyricsAndGenerate() {
+    const lyricsEl = document.getElementById('simple-lyrics');
+    if (lyricsEl) lyricsEl.value = '';
+    return generateSimple();
+}
+
 async function generateSimple() {
     if (aceReady === false) {
         showSimpleStatus(t('status_ace_wait'), 'info');
@@ -2077,6 +2096,7 @@ async function generateSimple() {
 
     const btn = document.getElementById('simple-generate-btn');
     btn.disabled = true;
+    setRegenButton(true);
     btn.innerHTML = t('btn_generating');
     hideSimpleStatus();
 
@@ -2085,7 +2105,8 @@ async function generateSimple() {
         // 3 回に分けると CPU 推論では毎回の入力読み込み(20〜30 秒)が支配的になるため。失敗したら従来の Step 0〜2 に落ちる。
         let planned = null;
         let effectiveLyrics = lyrics;
-        if (!theme && !lyrics && selectedGenre) {
+        // 歌詞が空ならプランを 1 回で作る。テーマがあればそれを固定して歌詞とキャプションだけ作る
+        if (!lyrics && selectedGenre) {
             const planBuiltin = document.getElementById('simple-builtin-caption').checked;
             const planManual = getManualCaption();
             // キャプションを LLM に頼む経路のときだけ一緒に作る（builtin+thinking=OFF はタグをそのまま使うので作らない）
@@ -2104,6 +2125,7 @@ async function generateSimple() {
                     want_lyrics: !isInst,
                     want_caption: planWantCaption,
                     thinking: getThinking(),
+                    theme: theme || '',
                 });
                 if (plan.success && plan.theme) {
                     planned = plan;

@@ -15,7 +15,7 @@ from openai import AsyncOpenAI, APIConnectionError, APITimeoutError
 
 from config import settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")   # Easy Music のログ設定で INFO が画面に出るロガー
 
 
 # システムプロンプト: 作詞
@@ -1178,8 +1178,11 @@ Generate one original {genre_key} song theme:""".strip()
         want_lyrics: bool = True,
         want_caption: bool = True,
         thinking: bool = True,
+        theme: str = "",
     ) -> Dict[str, Any]:
         """テーマ・歌詞・キャプションを **1 回の LLM 呼び出し** で作る(簡単モードで全部空のまま生成を押したとき)。
+
+        theme を渡すとそのテーマは固定で、歌詞とキャプションだけを作る(「歌詞を新しくして生成」)。
 
         3 回に分けると、CPU 推論では毎回の入力(システムプロンプト約 1000 トークン)の読み込みが 20〜30 秒ずつ
         かかって支配的になるので、入力を 1 回にまとめる。同じ文脈で書くので歌詞とキャプションの整合も良い。
@@ -1189,20 +1192,30 @@ Generate one original {genre_key} song theme:""".strip()
         insp = self._theme_inspiration(genre)
         genre_key = insp["genre_key"]
         style = tags or genre_key
+        fixed_theme = (theme or "").strip()
         parts = [
             f"Create a complete song plan in ONE response.",
             f"Genre: {genre_key}",
             f"Style hints: {style}",
-            f"Scene inspiration: {insp['setting']}",
-            f"Emotional tone: {insp['emotion']}",
-            f"Creative approach: {insp['angle']}",
+        ]
+        if fixed_theme:
+            # テーマ固定: 場面や切り口は与えず、与えたテーマをそのまま使わせる(THEME 行は復唱)
+            parts.append(f"Theme (fixed, use exactly this): {fixed_theme}")
+        else:
+            parts += [
+                f"Scene inspiration: {insp['setting']}",
+                f"Emotional tone: {insp['emotion']}",
+                f"Creative approach: {insp['angle']}",
+            ]
+        parts += [
             f"Language of theme and lyrics: {language}",
             f"Mood: {mood or 'match the theme'}",
             f"Vocal style: {vocal or 'match the genre'}" if want_lyrics or want_caption else "",
             "",
             "OUTPUT FORMAT — exactly these blocks, in this order, nothing else:",
-            f"THEME: <one short, vivid, concrete song theme in {language}, 3-10 words, no quotes, no parentheses; "
-            "avoid overused words: rain, sunset, cherry blossoms, twilight, starlight, moonlight, silhouette, horizon, nostalgia>",
+            (f"THEME: {fixed_theme}   <- repeat the fixed theme exactly" if fixed_theme else
+             f"THEME: <one short, vivid, concrete song theme in {language}, 3-10 words, no quotes, no parentheses; "
+             "avoid overused words: rain, sunset, cherry blossoms, twilight, starlight, moonlight, silhouette, horizon, nostalgia>"),
         ]
         if want_caption:
             vocal_part = f'"{vocal}"' if vocal else ("no vocals" if not want_lyrics else "a fitting vocal description")
@@ -1238,6 +1251,8 @@ Generate one original {genre_key} song theme:""".strip()
             ok = bool(last["theme"]) and (not want_lyrics or (last["lyrics"] and "[" in last["lyrics"])) \
                 and (not want_caption or bool(last["caption"]))
             if ok:
+                if fixed_theme:
+                    last["theme"] = fixed_theme    # 復唱がずれても、固定したテーマを返す
                 if want_caption and vocal and vocal.lower() not in last["caption"].lower():
                     last["caption"] = last["caption"].rstrip('.') + f", with a {vocal}."
                 return last
