@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-22 23:30 JST** — Easy Music: 「歌詞を新しくして生成」(テーマはそのまま歌詞とキャプションを作り直す)。同梱 LLM は空き VRAM 2GB 以上なら 8GB / 6GB 級でも GPU に載せる(i3 + 4060 8GB で 3 分 42 秒の曲が 2 分 41 秒)。LLM のログを画面に出す。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-23 00:10 JST** — 実測: i3 + RTX 3050 6GB で同梱 LLM を GPU に載せると、テーマを変えた曲が 3 分 28 秒 → 2 分 41 秒(今の既定)。「歌詞を新しくして生成」ボタン。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。
@@ -153,7 +153,7 @@ GPU の指定は `CUDA_VISIBLE_DEVICES` で行う(Windows は `set CUDA_VISIBLE_
 
 - 外部の OpenAI 互換 API(Ollama、llama.cpp server、LM Studio、vLLM、OpenAI など)を使い、つながらなければ同梱の Gemma 4 E4B(GGUF Q4_0、約 4.4GB、初回に自動ダウンロード、thinking は OFF)を使います。外部の既定は `http://localhost:11434/v1`(Ollama)。
 - 同梱 LLM の実体は llama.cpp のビルド済み `llama-server`(固定タグ b12475)で、初回に `easy-music/tools/llama/` へ自動で取ってきて子プロセスとして動かします(コンパイラ不要。`easy-music/scripts/fetch_llama_server.py` で事前取得も可)。既存のバイナリや GGUF を使うなら `LLAMA_SERVER` / `LOCAL_LLM_GGUF`、ポートは `LOCAL_LLM_PORT`(既定 11440)。
-- **GPU で動かす**(`LOCAL_LLM_GPU=auto`、既定): NVIDIA GPU があれば CUDA 版の `llama-server`(本体 + cudart、0.6〜0.8GB)を取り、空き VRAM に入る層だけ GPU に載せます(llama.cpp の `--fit`。全部載ると約 3GB + KV)。ACE に生成を投げる直前と、ACE の `format_input`(LM とテキストエンコーダが GPU に上がる)の前に止めて VRAM を返し、ACE の生成が終わるまでは起こしません(曲名や背景画像のプロンプトはその後に作る)。auto は空き VRAM が 2GB 以上あれば GPU に載せます(8GB / 6GB 級でも ACE の待機は約 3.3GB なので載る。i3 + 4060 8GB で歌詞の時間が縮んだ)。`LOCAL_LLM_GPU=off` で CPU 版、`on` で VRAM の大きさに関係なく `--fit`(空きに入る層だけ GPU)、`all` / 層数で固定。Windows の PowerShell では `set` は環境変数にならないので `$env:LOCAL_LLM_GPU = "on"` と書く(コマンドプロンプトは `set LOCAL_LLM_GPU=on`)。起動したときは端末に「ローカルLLM: CUDA 版、空き VRAM ... MiB」と「ローカルLLMを起動: ...」が出る。`LOCAL_LLM_STOP_BEFORE_ACE=0` で止めない(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
+- **GPU で動かす**(`LOCAL_LLM_GPU=auto`、既定): NVIDIA GPU があれば CUDA 版の `llama-server`(本体 + cudart、0.6〜0.8GB)を取り、空き VRAM に入る層だけ GPU に載せます(llama.cpp の `--fit`。全部載ると約 3GB + KV)。ACE に生成を投げる直前と、ACE の `format_input`(LM とテキストエンコーダが GPU に上がる)の前に止めて VRAM を返し、ACE の生成が終わるまでは起こしません(曲名や背景画像のプロンプトはその後に作る)。auto は空き VRAM が 2GB 以上あれば GPU に載せます(8GB / 6GB 級でも ACE の待機は約 3.3GB なので載る。i3 + 3050 6GB で、テーマを変えた曲が 3 分 28 秒 → 2 分 41 秒)。`LOCAL_LLM_GPU=off` で CPU 版、`on` で VRAM の大きさに関係なく `--fit`(空きに入る層だけ GPU)、`all` / 層数で固定。Windows の PowerShell では `set` は環境変数にならないので `$env:LOCAL_LLM_GPU = "on"` と書く(コマンドプロンプトは `set LOCAL_LLM_GPU=on`)。起動したときは端末に「ローカルLLM: CUDA 版、空き VRAM ... MiB」と「ローカルLLMを起動: ...」が出る。`LOCAL_LLM_STOP_BEFORE_ACE=0` で止めない(VRAM 16GB 以上で同居できるとき)、`=1` で CPU 版でも止める(RAM 16GB で 4.4GB を返したいとき)。
 - **呼び出しは 1 回**: 簡単モードで歌詞が空のまま生成を押すと、テーマ(空なら新しく、あればそれを固定)・歌詞・キャプションを 1 回の呼び出しでまとめて作ります(`/api/song_plan`)。生成ボタンの隣の「✍️ 歌詞を新しくして生成」は、テーマを残して歌詞欄を空にし、同じテーマで歌詞とキャプションを作り直してから生成します(同じ歌詞のまま生成を押すとリテイクになり、曲名だけが変わる)。失敗したときはテーマ → 歌詞 → キャプションの 3 回に戻ります。
 - **疎通確認**: 起動時と 60 秒ごとに外部 LLM(`GET /v1/models`。生成はしない。指定モデルが一覧に無ければ使えない扱い)と画像サーバを確かめ、起動ログに `[起動確認] 外部 LLM: 接続不可(...)→ 同梱 LLM(Gemma 4 E4B)を使用` のように 1 行ずつ出します。使えない間は呼び出しのたびに試さず、つながれば次の確認で外部に戻ります。状態は `GET /api/services_status`。
 
@@ -233,7 +233,8 @@ Easy Music の簡単モード(ジャンルを選んで生成、テーマ・歌�
 |---|---|---|
 | RTX 3060 12GB / i3-10105(4 コア)/ RAM 32GB、Windows 10 | 何も付けない(自動で `12gb`)、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 25 秒 → 3 分 35 秒<br>続けて同じジャンル: 3 分 15 秒 → **1 分 15 秒**<br>ジャンルを変えて: 3 分 50 秒 → **2 分 1 秒** |
 | RTX 4060 Laptop 8GB / i9-13900H / RAM 16GB(DDR5-4800)、Windows 11 | [8GB の 5 つの設定](#必要-vram-の目安実測は-rtx-a4000-16gbrtx-pro-6000-96gb)(今は自動)、2B turbo、同梱 LLM は CPU | 3 分 19 秒 → 2 分 50 秒(CPU 負荷 65% 前後) |
-| RTX 3050 6GB / i3-10105(4 コア)/ RAM 16GB、Windows 10(同じ箱で GPU を差し替え) | 何も付けない(自動で `12gb` + 8GB 向けの設定)、2B turbo、同梱 LLM は CPU | 2 曲目: 3 分 2 秒 → **2 分 37 秒**<br>テーマを変えて 3 曲目: 2 分 53 秒 → **3 分 28 秒**(歌詞の LLM 1 分 20 秒、キャプション強化まで 2 分 15 秒、残り 1 分 13 秒が ACE) |
+| RTX 3050 6GB / i3-10105(4 コア)/ RAM 16GB、Windows 10(同じ箱で GPU を差し替え) | 何も付けない(自動で `12gb` + 8GB 向けの設定)、2B turbo、同梱 LLM は CPU | 2 曲目: 3 分 2 秒 → 2 分 37 秒<br>テーマを変えて 3 曲目: 2 分 53 秒 → 3 分 28 秒(歌詞の LLM 1 分 20 秒、キャプション強化まで 2 分 15 秒、残り 1 分 13 秒が ACE) |
+| 同上 | 同上、同梱 LLM は GPU(空きに入る層だけ。今の既定) | テーマを変えて: 3 分 42 秒 → **2 分 41 秒**<br>テーマそのまま(歌詞を作り直して): 3 分 10 秒 → **2 分 19 秒** |
 | RTX A4000 16GB / Core Ultra 7 265KF / RAM 128GB、Ubuntu 24.04 | `12gb` を指定、2B turbo、同梱 LLM は GPU | 起動直後の 1 曲目: 3 分 13 秒 → **39 秒**<br>続けて同じジャンル: 3 分 22 秒 → **40 秒**<br>ジャンルを変えて: 3 分 0 秒 → **40 秒** |
 | 同上 | 何も付けない(自動で `16gb`)、2B turbo を選択 | 起動直後の 1 曲目: 3 分 35 秒 → 1 分 19 秒<br>続けて同じジャンル: 3 分 8 秒 → 39 秒<br>ジャンルを変えて: 3 分 35 秒 → 42 秒 |
 | 同上 | 何も付けない(自動で `16gb`)、XL-SFT(既定モデル、50 ステップ) | 2 分 55 秒 → 1 分 26 秒 |
@@ -241,7 +242,7 @@ Easy Music の簡単モード(ジャンルを選んで生成、テーマ・歌�
 - 2 曲目からは、どの環境でも曲の長さより短い時間で作れるので、1 曲流している間に次を作る連続生成が成り立ちます。
 - A4000 の内訳は、LLM(テーマ・歌詞・キャプションを 1 回で)約 7 秒、ACE の `format_input` 約 5 秒、ACE の生成が 2B turbo で 25〜30 秒、XL-SFT で 74 秒です。Linux の行は、簡単モードと同じリクエストを同じ順に送るスクリプトで測りました(ブラウザ操作の時間は含みません)。
 - **起動直後の 1 曲目が遅い理由**: 同梱 LLM は起動時に空き VRAM を見て、入らない層を CPU に回します(llama.cpp の `--fit`)。A4000 の `16gb` は起動時に XL-SFT(約 10GB)を GPU に置くので、1 曲目の LLM は一部が CPU で動き、12.7 tok/s でした(全部 GPU なら 82 tok/s)。2B turbo で 1 曲作ると GPU 上のモデルが 2B turbo(4.8GB)に替わって空きが増え、2 曲目からは LLM が全部 GPU に載ります。`12gb` で起動すると最初から空きがあり、1 曲目から遅くなりません。3060 12GB は待機中の ACE で約 8GB を使うので空きが少なく、同じ理由で 1 曲目の LLM が i3 の CPU で動いて遅くなっていると見ています(推定)。
-- 6GB でも音楽は作れます(8GB 向けの設定が自動で入る)。ACE 本体は 2B turbo で 1 分強、残りは i3 の CPU で動く歌詞の LLM の時間です。
+- 6GB でも音楽は作れます(8GB 向けの設定が自動で入る)。ACE 本体は 2B turbo で 1 分強で、残りは歌詞の LLM の時間です。同梱 LLM を GPU に載せる(今の既定)と、i3 でもテーマを変えた曲が 3 分 28 秒 → 2 分 41 秒になりました。
 - 3060 の入門機では CPU が律速です。同梱 LLM を CPU で動かしていたときは、歌詞だけで 1 分 20 秒かかっていました。GPU 実行(既定)とテーマ・歌詞・キャプションの 1 回化で、LLM の時間が十数秒になりました。
 
 ## 文書
