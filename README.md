@@ -1,6 +1,6 @@
 # ACE-Step-1.5-fast
 
-**最新版: 2026-11-22 18:30 JST** — xl-sft / base の出力が濁る不具合を修正(サンプラー補正 DCW が全モデルで強制 ON だった。upstream #1259 と同じ原因。未指定なら turbo は ON、sft / base は OFF)。モデル切替後に thinking で生成すると「Inference tensors do not track version counter」で失敗する不具合も修正。直す前のサーバは再起動が必要。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
+**最新版: 2026-11-22 18:56 JST** — Windows 向けの点検: 起動バッチを CRLF で保存(git clone 以外で取ると LF のままで壊れる)、Easy Music の出力を UTF-8 に、setup.bat の echo から括弧を除去。xl-sft / base の DCW 修正は 4140705。変更の履歴は [GitHub の commits](https://github.com/animede/ACE-Step-1.5-fast/commits/main)。
 
 [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)(オープンソースの音楽生成モデル)のフォーク。
 **16GB 級 GPU(RTX A4000)で XL(4B)モデルを動かすための高速化版 + API サーバ改良版**です。12GB 級は 2B モデルで、8GB 級も指定付きで動きます。対象は NVIDIA GPU(CUDA)の Linux と Windows です。

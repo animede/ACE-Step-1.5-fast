@@ -53,7 +53,7 @@ echo [3/4] GPU / libraries
 uv run --no-sync python scripts\check_env.py
 
 if "%WANT_MODELS%"=="1" (
-    echo [4/4] checkpoints (skips what already exists)
+    echo [4/4] checkpoints, skipping what already exists
     if "%TWELVE%"=="1" (
         uv run --no-sync acestep-download --model acestep-v15-base || exit /b 1
     ) else (

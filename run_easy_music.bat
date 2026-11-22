@@ -19,5 +19,7 @@ if not defined ACE_STEP_API_URL set ACE_STEP_API_URL=http://127.0.0.1:%ACESTEP_A
 set "ARGS=%*"
 echo %~1| findstr /r "^[0-9][0-9]*$" >nul && set "ARGS=--port %*"
 if not defined EASY_MUSIC_RELOAD set "ARGS=--no-reload %ARGS%"
+set "PYTHONUTF8=1"
+rem UTF-8 even when stdout is redirected (cp932 would fail on emoji in the startup message)
 python main.py %ARGS%
 endlocal
